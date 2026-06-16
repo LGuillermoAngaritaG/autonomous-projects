@@ -1,0 +1,11 @@
+name: autonomous-projects
+version: 1
+conduits:
+  - autonomous-projects
+  - generate-idea
+  - generate-review
+  - task-with-review
+skills:
+  - idea
+  - planning
+  - review

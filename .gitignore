@@ -1,0 +1,27 @@
+projects/paused/*.md
+projects/working/*.md
+tasks/*
+
+.env
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+wheels/
+*.egg-info
+*.spec
+.ruff_cache/
+
+# Virtual environments
+.venv*
+.claude
+.atelier/flows
+.devtool
+claude.md
+.pytest_cache
+.DS_Store
+.opencode
+AGENTS.md
+.agents/
+projects/
+tasks/
