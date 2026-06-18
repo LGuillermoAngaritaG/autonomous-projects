@@ -13,6 +13,17 @@ Reads the project's frontmatter caps and counts its task files:
                        AND in-review/*.md  < max_to_review
 A missing/non-numeric cap means no cap, so that gate stays open.
 
+Each gate is also throttled by the live 5h usage (usage.mjs) of the harness(es)
+that do its work:
+    generate_idea   -> harness_ideation
+    generate_review -> harness_ideation (shares the idea harness)
+    work_on_to_do   -> harness_review AND harness_development
+                       (the task-with-review loop uses both; if either tool is
+                       at/over its ceiling, the gate is forced false)
+A tool at or over its max_usage_* ceiling closes the gates it feeds. Usage that
+can't be read is treated as 0% (fail open), so throttling never blocks the loop
+on a broken read.
+
 task_path is the top file in to-do/, ordered by: frontmatter priority asc,
 then human-commented tasks first (non-empty `# User comments`), then review_*
 files first. Empty string when to-do/ has no tasks.
@@ -21,10 +32,35 @@ files first. Empty string when to-do/ has no tasks.
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
 from project_picker import parse_frontmatter
+
+# Maps a harness short name (the conduit's harness_* inputs) to the usage.mjs
+# label and the conduit's matching max_usage_* ceiling.
+HARNESS_TOOL = {"cc": "claudecode", "codex": "codex", "opencode": "opencode"}
+
+
+def read_usage() -> dict[str, int]:
+    """Live 5h usage % per usage.mjs label. Fail open: empty on any error."""
+    script = Path(__file__).resolve().parent / "usage.mjs"
+    usage: dict[str, int] = {}
+    try:
+        out = subprocess.run(
+            ["node", str(script)],
+            capture_output=True, text=True, timeout=120,
+        ).stdout
+    except Exception:
+        return usage
+    for line in out.splitlines():
+        label, _, val = line.partition(":")
+        try:
+            usage[label.strip()] = int(val.strip().rstrip("%"))
+        except ValueError:
+            pass  # "n/a" or junk -> leave unset (treated as 0%)
+    return usage
 
 
 def _section_has_content(text: str, header: str) -> bool:
@@ -44,9 +80,31 @@ def _section_has_content(text: str, header: str) -> bool:
 class ProjectState:
     """Compute the per-tick conduit gates for one picked project."""
 
-    def __init__(self, root: Path, name: str) -> None:
+    def __init__(
+        self,
+        root: Path,
+        name: str,
+        usage: dict[str, int] | None = None,
+        max_usage: dict[str, int] | None = None,
+        harness: dict[str, str] | None = None,
+    ) -> None:
         self.project_file = root / "projects" / "working" / f"{name}.md"
         self.tasks = root / "tasks" / name
+        # Throttle config. Defaults disable throttling (no usage, 100% ceilings).
+        self.usage = usage or {}
+        self.max_usage = max_usage or {}
+        self.harness = harness or {
+            "ideation": "cc", "development": "opencode", "review": "codex"}
+
+    def _usage_ok(self, *roles: str) -> bool:
+        """True unless any harness running these roles is at/over its ceiling."""
+        for role in roles:
+            tool = HARNESS_TOOL.get(self.harness.get(role, ""))
+            if tool is None:
+                continue  # unknown harness -> don't throttle on it
+            if self.usage.get(tool, 0) >= self.max_usage.get(tool, 100):
+                return False
+        return True
 
     @staticmethod
     def _under_cap(fm: dict[str, str], key: str, count: int) -> bool:
@@ -69,11 +127,14 @@ class ProjectState:
         has_work = self._count("to-do") > 0 or self._count("in-progress") > 0
         return {
             "generate_idea": self._under_cap(
-                fm, "max_ideas", self._count("backlog", "idea_*.md")),
+                fm, "max_ideas", self._count("backlog", "idea_*.md"))
+                and self._usage_ok("ideation"),
             "generate_review": self._under_cap(
-                fm, "max_reviews", self._count("backlog", "review_*.md")),
+                fm, "max_reviews", self._count("backlog", "review_*.md"))
+                and self._usage_ok("ideation"),
             "work_on_to_do": has_work and self._under_cap(
-                fm, "max_to_review", self._count("in-review")),
+                fm, "max_to_review", self._count("in-review"))
+                and self._usage_ok("review", "development"),
         }
 
     def next_task_path(self) -> str:
@@ -105,9 +166,29 @@ def main() -> int:
                         help="Conduit root holding projects/ and tasks/.")
     parser.add_argument("--name", required=True,
                         help="Project stem (the picker's NAME output).")
+    parser.add_argument("--max-usage-cc", type=int, default=100)
+    parser.add_argument("--max-usage-codex", type=int, default=100)
+    parser.add_argument("--max-usage-opencode", type=int, default=100)
+    parser.add_argument("--harness-ideation", default="cc")
+    parser.add_argument("--harness-development", default="opencode")
+    parser.add_argument("--harness-review", default="codex")
     args = parser.parse_args()
 
-    state = ProjectState(Path(args.projects_dir).expanduser(), args.name)
+    state = ProjectState(
+        Path(args.projects_dir).expanduser(),
+        args.name,
+        usage=read_usage(),
+        max_usage={
+            "claudecode": args.max_usage_cc,
+            "codex": args.max_usage_codex,
+            "opencode": args.max_usage_opencode,
+        },
+        harness={
+            "ideation": args.harness_ideation,
+            "development": args.harness_development,
+            "review": args.harness_review,
+        },
+    )
     for key, val in state.gates().items():
         print(f"{key}: {str(val).lower()}")
     print(f"task_path: {state.next_task_path()}")

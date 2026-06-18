@@ -16,7 +16,7 @@ tasks:
 
         When finished, describe concretely what you did so a reviewer
         can independently judge whether the task was completed.
-      tool: harness:claude-code
+      tool: harness:opencode
       depends_on: []
 
   - review:

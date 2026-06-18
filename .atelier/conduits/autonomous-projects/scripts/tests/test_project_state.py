@@ -8,7 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from project_state import ProjectState
 
 
-def _setup(fm_lines, idea, review, in_review, todo, in_progress) -> ProjectState:
+def _setup(fm_lines, idea, review, in_review, todo, in_progress,
+           **throttle) -> ProjectState:
     root = Path(tempfile.mkdtemp())
     name = "demo"
     wd = root / "projects" / "working"
@@ -28,7 +29,7 @@ def _setup(fm_lines, idea, review, in_review, todo, in_progress) -> ProjectState
         (tasks / "to-do" / f"t_{i}.md").write_text("x")
     for i in range(in_progress):
         (tasks / "in-progress" / f"p_{i}.md").write_text("x")
-    return ProjectState(root, name)
+    return ProjectState(root, name, **throttle)
 
 
 def main() -> None:
@@ -58,6 +59,41 @@ def main() -> None:
 
     # missing caps -> generate gates stay open; in-review never full
     g = _setup([], 5, 5, 5, 1, 0).gates()
+    assert g == {"generate_idea": True, "generate_review": True,
+                 "work_on_to_do": True}, g
+
+    # --- usage throttling (default harness: ideation=cc, dev=opencode, review=codex) ---
+    # generate_idea + generate_review both ride harness_ideation (cc);
+    # work_on_to_do rides harness_review (codex) AND harness_development (opencode).
+    maxu = {"claudecode": 80, "codex": 80, "opencode": 80}
+
+    # cc over its ceiling -> both generate gates throttled, work untouched
+    g = _setup(caps, 1, 1, 1, 1, 0,
+               usage={"claudecode": 90}, max_usage=maxu).gates()
+    assert g == {"generate_idea": False, "generate_review": False,
+                 "work_on_to_do": True}, g
+
+    # opencode (development) over -> only work_on_to_do throttled; at-ceiling = over
+    g = _setup(caps, 1, 1, 1, 1, 0,
+               usage={"opencode": 80}, max_usage=maxu).gates()
+    assert g["work_on_to_do"] is False
+    assert g["generate_idea"] is True and g["generate_review"] is True
+
+    # codex (review) over -> work_on_to_do throttled; generate gates untouched
+    g = _setup(caps, 1, 1, 1, 1, 0,
+               usage={"codex": 95}, max_usage=maxu).gates()
+    assert g["work_on_to_do"] is False
+    assert g["generate_idea"] is True and g["generate_review"] is True
+
+    # under ceiling -> no throttling
+    g = _setup(caps, 1, 1, 1, 1, 0,
+               usage={"claudecode": 50, "codex": 50, "opencode": 50},
+               max_usage=maxu).gates()
+    assert g == {"generate_idea": True, "generate_review": True,
+                 "work_on_to_do": True}, g
+
+    # unreadable usage (empty) -> fail open, gates unchanged
+    g = _setup(caps, 1, 1, 1, 1, 0, usage={}, max_usage=maxu).gates()
     assert g == {"generate_idea": True, "generate_review": True,
                  "work_on_to_do": True}, g
 

@@ -15,6 +15,15 @@ inputs:
       Project must have been untouched (no git commit or file edit under
       `location`) for at least this many hours.
     default: "0.1"
+  max_usage_cc:
+    default: 80
+  max_usage_codex:
+    default: 95
+  max_usage_opencode:
+    default: 85
+  harness_ideation: cc
+  harness_development: opencode
+  harness_review: codex
 
 tasks:
   - get_projects_dir:
@@ -46,7 +55,13 @@ tasks:
         name="$(printf '%s' '{{pick_project.output}}')"
         python3 {{conduit_dir}}/scripts/project_state.py \
           --projects-dir "{{get_projects_dir.output}}" \
-          --name "$name"
+          --name "$name" \
+          --max-usage-cc "{{inputs.max_usage_cc}}" \
+          --max-usage-codex "{{inputs.max_usage_codex}}" \
+          --max-usage-opencode "{{inputs.max_usage_opencode}}" \
+          --harness-ideation "{{inputs.harness_ideation}}" \
+          --harness-development "{{inputs.harness_development}}" \
+          --harness-review "{{inputs.harness_review}}"
 
   - generate_idea:
       description: Generate one idea into the project's ideas/ folder.
