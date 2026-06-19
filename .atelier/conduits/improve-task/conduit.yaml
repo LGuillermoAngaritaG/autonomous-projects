@@ -8,13 +8,10 @@ inputs:
   template_dir: "Directory holding task_template.md (threaded from the parent conduit)."
   path_task: "Folder where the user drops raw task files to improve (the task inbox)."
   path_backlog: "Target folder where the improved task_*.md documents are written."
-  tasks_dir:
-    description: "Project task directory holding to-do/, in-progress/, in-review/, done/, backlog/; the new task must not duplicate work already queued, being worked, or implemented."
-    default: ""
 
 tasks:
   - improve_task:
-      description: Generate one concrete idea for the project via the idea skill.
+      description: Improve a task provided by the user.
       tool: harness:claude-code
       depends_on: []
       retries: 2
@@ -74,14 +71,14 @@ tasks:
           ===PLAN START===
           ===PLAN END===
 
-  - store_idea:
-      description: Assemble the idea document from the template and write it to path_idea.
+  - store_task:
+      description: Assemble the task document from the template and write it to path_backlog.
       tool: harness:claude-code
       depends_on: [improve_task, generate_plan]
       retries: 2
       retry_backoff: 5
       task: |
-        Create one idea document and write it to disk.
+        Create one task document and write it to disk.
 
         1. Read the template at:
            {{inputs.template_dir}}/task_template.md
@@ -89,11 +86,11 @@ tasks:
            "# User comments", "# What was done", "# How was done and tested".
 
         2. Fill the sections:
-           - "# Description": 
-           - "# Spec"ONLY the text between the "===IDEA START===" and
-             "===IDEA END===" markers in the idea below. Discard everything
+           - "# Description": Original user task
+           - "# Spec": ONLY the text between the "===TASK START===" and
+             "===TASK END===" markers in the task below. Discard everything
              outside the markers (model narration, the markers themselves, and
-             the IDEA_SLUG line).
+             the TASK_SLUG line).
            - "# Plan": ONLY the text between the "===PLAN START===" and
              "===PLAN END===" markers in the plan below. Strip a leading
              top-level "# ..." heading if present (the template already provides
@@ -106,7 +103,7 @@ tasks:
 
         3. Determine the slug from the "TASK_SLUG:" line in the task below.
 
-        4. Run: mkdir -p "{{inputs.path_task}}"
+        4. Run: mkdir -p "{{inputs.path_backlog}}"
            Then write the filled document to:
            {{inputs.path_backlog}}/task_<slug>.md
            (literal prefix "task_" followed by the slug, e.g. task_dark-mode.md).
@@ -125,7 +122,7 @@ tasks:
   - count_remaining:
       description: "Count .md tasks still in the inbox after this run and emit 'task_counter: N' so improve-all-tasks can stop at 0."
       tool: tool:bash
-      depends_on: [store_idea]
+      depends_on: [store_task]
       task: |
         set -euo pipefail
         uv run --no-project "{{conduit_dir}}/scripts/count_tasks.py" "{{inputs.path_task}}"

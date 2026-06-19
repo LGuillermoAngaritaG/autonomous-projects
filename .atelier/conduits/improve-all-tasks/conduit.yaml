@@ -9,9 +9,6 @@ inputs:
   template_dir: "Directory holding task_template.md, threaded through to improve-task."
   path_task: "Folder where the user drops raw task files to improve (the task inbox)."
   path_backlog: "Target folder where improved task_*.md documents are written."
-  tasks_dir:
-    description: "Project task directory (to-do/, in-progress/, in-review/, done/, backlog/) to avoid duplicating work."
-    default: ""
 
 tasks:
   - improve_all_tasks:
@@ -26,4 +23,3 @@ tasks:
         template_dir: "{{inputs.template_dir}}"
         path_task: "{{inputs.path_task}}"
         path_backlog: "{{inputs.path_backlog}}"
-        tasks_dir: "{{inputs.tasks_dir}}"
