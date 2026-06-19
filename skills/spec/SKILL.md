@@ -15,7 +15,7 @@ The spec's whole value is surfacing misunderstandings *before* code exists, when
 
 1. **State your assumptions first.** Before writing anything, list what you're assuming and let the user correct you. This is the part that actually prevents wasted work.
 
-   ```
+   ```text
    ASSUMPTIONS:
    1. This runs as a CLI, not a web service
    2. Input is a single JSON file, not a stream
@@ -54,7 +54,7 @@ Anything unresolved that needs a human answer before or during the build.
 
 When a request is fuzzy, the spec's job is to translate it into something you can check. Show the translation so the user can correct the target:
 
-```
+```text
 REQUEST: "make the import faster"
 
 SUCCESS CRITERIA:
