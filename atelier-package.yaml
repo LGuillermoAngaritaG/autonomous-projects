@@ -5,7 +5,10 @@ conduits:
   - generate-idea
   - generate-review
   - task-with-review
+  - improve-task
+  - improve-all-tasks
 skills:
   - idea
   - planning
   - review
+  - spec
