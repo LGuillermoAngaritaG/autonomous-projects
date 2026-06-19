@@ -117,6 +117,7 @@ tasks:
              "===PLAN END===" markers in the plan below. Strip a leading
              top-level "# ..." heading if present (the template already provides
              "# Plan"). Discard everything outside the markers.
+            - Frontmatter: set `priority: 3`
            - Leave "# User comments", "# What was done", and
              "# How was done and tested" empty, and leave the frontmatter fields
              blank — the human and the executor fill those later.
