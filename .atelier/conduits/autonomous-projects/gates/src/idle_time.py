@@ -1,5 +1,6 @@
 """Module 1: compute idle_time (minutes) per project from stage-folder mtimes."""
 
+import sys
 import time
 from pathlib import Path
 
@@ -29,7 +30,11 @@ def compute_idle_times(projects_root: Path, now: float | None = None) -> list[di
     """
     now = time.time() if now is None else now
     rows: list[dict] = []
-    for project in sorted(p for p in projects_root.iterdir() if p.is_dir()):
+    for entry in sorted(projects_root.iterdir()):
+        if not entry.is_dir():
+            print(f"warning: skipping non-directory {entry.name} under {projects_root}", file=sys.stderr)
+            continue
+        project = entry
         last_touched = max(
             (newest_mtime(project / stage) for stage in STAGE_FOLDERS),
             default=0.0,

@@ -315,3 +315,20 @@ def test_format_block(tmp_path):
         'project_name: "X"\nideas_left: 1\nreviews_left: 2\n'
         "to_do_left: 3\nto_improve_left: 4"
     )
+
+
+def test_stray_file_under_root_is_skipped(tmp_path, capsys):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "RealProject",
+        "---\npriority: 1\nstate: working\nmax_ideas: 10\nmax_reviews: 0\nmax_to_do: 0\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    (root / ".DS_Store").write_text("x")
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    assert ".DS_Store" not in {r["project_name"] for r in table}
+    chosen = select_project(table, min_idle=0)
+    assert chosen["project_name"] == "RealProject"
+    assert ".DS_Store" in capsys.readouterr().err
