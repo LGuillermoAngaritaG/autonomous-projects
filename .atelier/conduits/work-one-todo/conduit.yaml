@@ -41,7 +41,7 @@ tasks:
 
           Do the following:
           1. Read the project markdown file. Parse the YAML frontmatter (priority,
-             location, use_git), the `# Goal` section, and the `# Constraints` section if
+             location, use_git, test_command), the `# Goal` section, and the `# Constraints` section if
              present. Treat this file as READ-ONLY: it is owned by the human. Never edit it.
              The constraints are binding — every task you execute must respect them. If a
              constraint blocks the obvious next step or names a decision only the human can
@@ -60,12 +60,20 @@ tasks:
           7. Do the work. Respect `use_git`: if true, commit changes with a clear message;
              if false, just edit files.
           8. Validation gate (mandatory before moving the task): run the project's FULL
-             automated test suite (e.g. `uv run pytest`), not only the tests you added.
-             Record the exact pass/fail counts in `# How was done and tested`. The suite MUST be
-             green before you move the task. If it is red, fix the regression or revert your
-             change — never move a task that leaves tests failing. Do NOT dismiss failures as
-             "pre-existing" unless you have proven it against the committed baseline: `git
-             stash` does NOT revert committed code, so it cannot establish a baseline. To
+             automated test suite, not only the tests you added. Determine the command:
+             - If the frontmatter `test_command` is set, run exactly that (e.g. `uv run pytest`
+               or `npm test`).
+             - If `test_command` is empty/absent, look for the project's conventional suite
+               (package.json scripts, Cargo, Makefile, pytest, etc.) and run that.
+             - If the project genuinely has NO automated tests, do NOT improvise a pass: write
+               that plainly in `# How was done and tested` (e.g. "No automated test suite
+               present; verified by <what you actually did>"). "Couldn't verify" must be stated,
+               never hidden behind a claimed green check.
+             Record the exact pass/fail counts in `# How was done and tested`. When a suite
+             exists it MUST be green before you move the task. If it is red, fix the regression
+             or revert your change — never move a task that leaves tests failing. Do NOT dismiss
+             failures as "pre-existing" unless you have proven it against the committed baseline:
+             `git stash` does NOT revert committed code, so it cannot establish a baseline. To
              check, compare against HEAD before your own commits (e.g. `git stash` is invalid
              here; use `git checkout <pre-work-commit> -- . ` in a scratch worktree, or run
              the suite on a clean clone) — when unsure, assume the failure is yours.

@@ -42,6 +42,14 @@ tasks:
           Independently verify the claim. Inspect files, run commands, or
           check state as needed to confirm the task was truly completed.
 
+          Re-run the project's tests yourself — do NOT trust the builder's
+          self-reported result. Use the project's `test_command` (from the
+          project.md frontmatter) when set, otherwise the project's conventional
+          suite. The suite passing green under your own run is a precondition for
+          VERDICT: DONE. If the project genuinely has no automated tests, confirm
+          the builder recorded that honestly rather than claiming a pass; a DONE
+          verdict is never allowed on the builder's self-reported test result alone.
+
           Judge two things, not one:
           1. Completion — was the work actually done, not just claimed?
           2. Alignment — does the work serve the task's stated goal and respect
