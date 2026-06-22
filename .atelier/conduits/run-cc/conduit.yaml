@@ -1,0 +1,14 @@
+name: run-cc
+description: Run a prompt on the claude-code harness (maps the `cc` short name).
+timeout: 3600
+max_concurrency: 1
+
+inputs:
+  prompt: The prompt to run.
+
+tasks:
+  - run:
+      description: Execute the prompt via claude-code.
+      tool: harness:claude-code
+      depends_on: []
+      task: "{{inputs.prompt}}"

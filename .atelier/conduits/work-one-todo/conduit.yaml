@@ -11,6 +11,8 @@ max_concurrency: 1
 inputs:
   project_document: "Path to the project's project.md (read-only, owned by the human)."
   project_dir: "Path to the project folder holding the numbered stage subfolders."
+  harness_development: {default: "opencode"}
+  harness_review: {default: "codex"}
 
 tasks:
   - advance:
@@ -21,6 +23,8 @@ tasks:
       repeat: 10
       until: 'output.match(VERDICT:\s*DONE|NOTHING TO DO)'
       inputs:
+        harness_development: "{{inputs.harness_development}}"
+        harness_review: "{{inputs.harness_review}}"
         task: |
           You are advancing an autonomous project tracked in a folder-structured project directory.
 

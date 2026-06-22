@@ -1,0 +1,14 @@
+name: run-codex
+description: Run a prompt on the codex harness.
+timeout: 3600
+max_concurrency: 1
+
+inputs:
+  prompt: The prompt to run.
+
+tasks:
+  - run:
+      description: Execute the prompt via codex.
+      tool: harness:codex
+      depends_on: []
+      task: "{{inputs.prompt}}"

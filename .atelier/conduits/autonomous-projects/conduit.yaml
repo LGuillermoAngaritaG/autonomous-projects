@@ -159,6 +159,7 @@ tasks:
         path_idea: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
         bad_ideas: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_abandoned"
         tasks_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
+        harness_ideation: "{{inputs.harness_ideation}}"
 
   - generate_review:
       description: Generate one review into the project's 00_backlog/ folder.
@@ -176,6 +177,7 @@ tasks:
         path_review: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
         bad_ideas: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_abandoned"
         tasks_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
+        harness_ideation: "{{inputs.harness_ideation}}"
 
   - improve_task:
       description: Drain the project's 00_tasks/ inbox into spec'd task_*.md in 00_backlog/.
@@ -192,6 +194,7 @@ tasks:
         template_dir: "{{conduit_dir}}/references"
         path_task: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_tasks"
         path_backlog: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
+        harness_ideation: "{{inputs.harness_ideation}}"
 
   - work_task:
       description: Advance up to max_per_tick_to_do to-do tasks, each fully to DONE.
@@ -207,3 +210,5 @@ tasks:
       inputs:
         project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
         project_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
+        harness_development: "{{inputs.harness_development}}"
+        harness_review: "{{inputs.harness_review}}"

@@ -9,6 +9,7 @@ inputs:
   template_dir: "Directory holding task_template.md, threaded through to improve-task."
   path_task: "Folder where the user drops raw task files to improve (the task inbox)."
   path_backlog: "Target folder where improved task_*.md documents are written."
+  harness_ideation: {default: "cc"}
 
 tasks:
   - improve_all_tasks:
@@ -23,3 +24,4 @@ tasks:
         template_dir: "{{inputs.template_dir}}"
         path_task: "{{inputs.path_task}}"
         path_backlog: "{{inputs.path_backlog}}"
+        harness_ideation: "{{inputs.harness_ideation}}"
