@@ -24,12 +24,17 @@ inputs:
   automatic_to_do_task: {default: "true"}
   automatic_to_do_review: {default: "false"}
   automatic_to_do_idea: {default: "false"}
-  # max_per_tick_* are mirrored as literal `repeat:` on the matching task
-  # (the engine cannot template repeat). Kept here as the human-facing record.
-  max_per_tick_improve_task: {default: "5"}
-  max_per_tick_generate_review: {default: "1"}
-  max_per_tick_generate_idea: {default: "1"}
-  max_per_tick_to_do: {default: "5"}
+  # ── Per-tick cap mirror ──────────────────────────────────────────────
+  # The engine honors only the literal `repeat:` on each conduit task.
+  # To change a cap, edit the task's `repeat:` line (marked with the tag
+  # "per-tick cap (authoritative)"), then update both mirrors below AND
+  # config.yaml max_per_tick to the same number. The engine ignores these
+  # inputs — they exist as the human-facing record only.
+  # Name map: conduit task `work_task` ↔ key `to_do`.
+  max_per_tick_improve_task: {default: "15"}
+  max_per_tick_generate_review: {default: "15"}
+  max_per_tick_generate_idea: {default: "20"}
+  max_per_tick_to_do: {default: "15"}
 
 tasks:
   - dep_guard:
@@ -146,12 +151,7 @@ tasks:
         - pick_name
         - "pick.output.match(ideas_left: [1-9])"
         - "usage_gate.output.match(ideation_ok: true)"
-      # repeat = max_per_tick_generate_idea (config.yaml). The engine can't
-      # template repeat. To raise the per-tick cap, set repeat > 1 AND add
-      #   until: 'output.match(remaining:\s*0)'
-      # (the generate-idea count_remaining tail already emits it) so the loop
-      # stops at the project's max_ideas cap.
-      repeat: 20
+      repeat: 20  # per-tick cap (authoritative); mirror in config.yaml + inputs
       until: 'output.match(remaining:\s*0)'
       inputs:
         project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
@@ -168,11 +168,7 @@ tasks:
         - pick_name
         - "pick.output.match(reviews_left: [1-9])"
         - "usage_gate.output.match(ideation_ok: true)"
-      # repeat = max_per_tick_generate_review (config.yaml). To raise the
-      # per-tick cap, set repeat > 1 AND add
-      #   until: 'output.match(remaining:\s*0)'
-      # (the generate-review count_remaining tail already emits it).
-      repeat: 15
+      repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
       until: 'output.match(remaining:\s*0)'
       inputs:
         project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
@@ -189,9 +185,7 @@ tasks:
         - pick_name
         - "pick.output.match(to_improve_left: [1-9])"
         - "usage_gate.output.match(ideation_ok: true)"
-      # repeat = max_per_tick_improve_task (config.yaml). improve-task drains one
-      # inbox file per run and emits task_counter; until stops when it hits 0.
-      repeat: 15
+      repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
       until: 'output.match(task_counter:\s*0)'
       inputs:
         project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
@@ -208,10 +202,7 @@ tasks:
         - "pick.output.match(to_do_left: [1-9])"
         - "usage_gate.output.match(development_ok: true)"
         - "usage_gate.output.match(review_ok: true)"
-      # repeat = max_per_tick_to_do (config.yaml). work-one-todo advances one
-      # task to DONE per run and emits task_counter; until stops when 01_to-do
-      # drains. The inner DONE-loop lives in the work-one-todo conduit.
-      repeat: 15
+      repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
       until: 'output.match(task_counter:\s*0)'
       inputs:
         project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
