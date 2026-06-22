@@ -1,61 +1,101 @@
 name: autonomous-projects
 description: >
   Pick the highest-priority idle project from this conduit's own project
-  folders and advance it via Claude Code. Projects live in projects/working/,
-  tasks in tasks/<name>/ with kanban folders (to-do, in-progress,
-  in-review, done). projects/paused/ holds projects the human wants
-  skipped. If no project is eligible, emit SKIP and short-circuit.
+  folders and advance it. Projects live in projects/<name>/ with a project.md
+  (YAML frontmatter, state: working|paused) and numbered stage folders
+  (00_backlog, 00_tasks, 01_to-do, 02_in-progress, 03_to-review, 04_done).
+  The gates picker reports how much work each bucket has left; each branch
+  runs only while its bucket is non-empty and the harness is under its usage
+  ceiling. If no project is eligible, every bucket reads 0 and the tick
+  short-circuits.
 
 timeout: 7200
 max_concurrency: 3
 
 inputs:
-  idle_hours:
-    description: >-
-      Project must have been untouched (no git commit or file edit under
-      `location`) for at least this many hours.
-    default: "0.1"
-  max_usage_cc:
-    default: "80"
-  max_usage_codex:
-    default: "95"
-  max_usage_opencode:
-    default: "85"
-  harness_ideation: cc
-  harness_development: opencode
-  harness_review: codex
+  max_usage_cc: {default: "80"}
+  max_usage_codex: {default: "95"}
+  max_usage_opencode: {default: "85"}
+  idle_hours: {default: "0.1"}
+  harness_ideation: {default: "cc"}
+  harness_development: {default: "opencode"}
+  harness_review: {default: "codex"}
+  # Declared for parity with config.yaml; not yet wired to any branch.
+  automatic_to_do_task: {default: "true"}
+  automatic_to_do_review: {default: "false"}
+  automatic_to_do_idea: {default: "false"}
+  # max_per_tick_* are mirrored as literal `repeat:` on the matching task
+  # (the engine cannot template repeat). Kept here as the human-facing record.
+  max_per_tick_improve_task: {default: "5"}
+  max_per_tick_generate_review: {default: "1"}
+  max_per_tick_generate_idea: {default: "1"}
+  max_per_tick_to_do: {default: "5"}
 
 tasks:
   - get_projects_dir:
-      description: Ensure the run directory's project/task folders exist and emit its path.
+      description: Ensure the run directory's projects/ folder exists and emit its path.
       tool: tool:bash
       depends_on: []
       task: |
         set -euo pipefail
-        mkdir -p projects/working projects/paused tasks
+        mkdir -p projects
         printf '%s' "$(pwd -P)"
 
-  - pick_project:
-      description: Decide which project (if any) to work on this tick.
+  - pick:
+      description: Pick the project and report per-bucket work left (gates).
       tool: tool:bash
       depends_on: [get_projects_dir]
       task: |
         set -euo pipefail
-        python3 {{conduit_dir}}/scripts/project_picker.py \
-          --projects-dir "{{get_projects_dir.output}}" \
-          --idle-hours "{{inputs.idle_hours}}"
-  - gate:
-      description: Emit per-tick gates (generate_idea / generate_review / work_on_to_do) for the picked project.
+        mins="$(python3 -c 'print({{inputs.idle_hours}} * 60)')"
+        uv run --project {{conduit_dir}}/gates \
+          python {{conduit_dir}}/gates/main.py \
+          "{{get_projects_dir.output}}/projects" \
+          --min-idle-minutes "$mins"
+
+  - pick_name:
+      description: Extract the bare project name from the gates block (empty when none).
       tool: tool:bash
-      depends_on:
-        - get_projects_dir
-        - "pick_project.output.not_match(^SKIP)"
+      depends_on: [pick]
       task: |
         set -euo pipefail
-        name="$(printf '%s' '{{pick_project.output}}')"
-        python3 {{conduit_dir}}/scripts/project_state.py \
-          --projects-dir "{{get_projects_dir.output}}" \
-          --name "$name" \
+        # ponytail: single-quoting the block is safe (gates names never contain ').
+        # Wrap in $(...) to strip the trailing newline sed's `p` emits — otherwise
+        # the name carries a \n that corrupts every downstream path built from this
+        # task's output (awk/find then fail on the broken path, killing the tick).
+        printf '%s' "$(printf '%s' '{{pick.output}}' \
+          | sed -n 's/^project_name: "\(.*\)"$/\1/p')"
+
+  - validate_config:
+      description: Warn-only sanity check of config.yaml and run inputs (never blocks).
+      tool: tool:bash
+      depends_on: [get_projects_dir]
+      task: |
+        set -euo pipefail
+        python3 {{conduit_dir}}/scripts/validate_config.py \
+          --config-path "{{conduit_dir}}/config.yaml" \
+          --max-usage-cc "{{inputs.max_usage_cc}}" \
+          --max-usage-codex "{{inputs.max_usage_codex}}" \
+          --max-usage-opencode "{{inputs.max_usage_opencode}}" \
+          --idle-hours "{{inputs.idle_hours}}" \
+          --harness-ideation "{{inputs.harness_ideation}}" \
+          --harness-development "{{inputs.harness_development}}" \
+          --harness-review "{{inputs.harness_review}}" \
+          --automatic-to-do-task "{{inputs.automatic_to_do_task}}" \
+          --automatic-to-do-review "{{inputs.automatic_to_do_review}}" \
+          --automatic-to-do-idea "{{inputs.automatic_to_do_idea}}" \
+          --max-per-tick-improve-task "{{inputs.max_per_tick_improve_task}}" \
+          --max-per-tick-generate-review "{{inputs.max_per_tick_generate_review}}" \
+          --max-per-tick-generate-idea "{{inputs.max_per_tick_generate_idea}}" \
+          --max-per-tick-to-do "{{inputs.max_per_tick_to_do}}"
+
+  - usage_gate:
+      description: Emit per-role usage-throttle flags (ideation/development/review _ok).
+      tool: tool:bash
+      depends_on: [get_projects_dir]
+      task: |
+        set -euo pipefail
+        python3 {{conduit_dir}}/scripts/usage_gate.py \
           --max-usage-cc "{{inputs.max_usage_cc}}" \
           --max-usage-codex "{{inputs.max_usage_codex}}" \
           --max-usage-opencode "{{inputs.max_usage_opencode}}" \
@@ -64,87 +104,80 @@ tasks:
           --harness-review "{{inputs.harness_review}}"
 
   - generate_idea:
-      description: Generate one idea into the project's ideas/ folder.
+      description: Generate one idea into the project's 00_backlog/ folder.
       tool: tool:conduit
       task: generate-idea
       depends_on:
-        - "gate.output.match(generate_idea: true)"
+        - pick_name
+        - "pick.output.match(ideas_left: [1-9])"
+        - "usage_gate.output.match(ideation_ok: true)"
+      # repeat = max_per_tick_generate_idea (config.yaml). The engine can't
+      # template repeat. To raise the per-tick cap, set repeat > 1 AND add
+      #   until: 'output.match(remaining:\s*0)'
+      # (the generate-idea count_remaining tail already emits it) so the loop
+      # stops at the project's max_ideas cap.
+      repeat: 20
+      until: 'output.match(remaining:\s*0)'
       inputs:
-        project_document: "{{get_projects_dir.output}}/working/{{pick_project.output}}.md"
+        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
         template_dir: "{{conduit_dir}}/references"
-        path_idea: "{{get_projects_dir.output}}/tasks/{{pick_project.output}}/backlog"
-        bad_ideas: "{{get_projects_dir.output}}/tasks/{{pick_project.output}}/abandoned"
-        tasks_dir: "{{get_projects_dir.output}}/tasks/{{pick_project.output}}"
+        path_idea: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
+        bad_ideas: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_abandoned"
+        tasks_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
 
   - generate_review:
-      description: Generate one review into the project's backlog/ folder.
+      description: Generate one review into the project's 00_backlog/ folder.
       tool: tool:conduit
       task: generate-review
       depends_on:
-        - "gate.output.match(generate_review: true)"
+        - pick_name
+        - "pick.output.match(reviews_left: [1-9])"
+        - "usage_gate.output.match(ideation_ok: true)"
+      # repeat = max_per_tick_generate_review (config.yaml). To raise the
+      # per-tick cap, set repeat > 1 AND add
+      #   until: 'output.match(remaining:\s*0)'
+      # (the generate-review count_remaining tail already emits it).
+      repeat: 15
+      until: 'output.match(remaining:\s*0)'
       inputs:
-        project_document: "{{get_projects_dir.output}}/working/{{pick_project.output}}.md"
+        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
         template_dir: "{{conduit_dir}}/references"
-        path_review: "{{get_projects_dir.output}}/tasks/{{pick_project.output}}/backlog"
-        bad_ideas: "{{get_projects_dir.output}}/tasks/{{pick_project.output}}/abandoned"
-        tasks_dir: "{{get_projects_dir.output}}/tasks/{{pick_project.output}}"
+        path_review: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
+        bad_ideas: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_abandoned"
+        tasks_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
+
+  - improve_task:
+      description: Drain the project's 00_tasks/ inbox into spec'd task_*.md in 00_backlog/.
+      tool: tool:conduit
+      task: improve-task
+      depends_on:
+        - pick_name
+        - "pick.output.match(to_improve_left: [1-9])"
+        - "usage_gate.output.match(ideation_ok: true)"
+      # repeat = max_per_tick_improve_task (config.yaml). improve-task drains one
+      # inbox file per run and emits task_counter; until stops when it hits 0.
+      repeat: 15
+      until: 'output.match(task_counter:\s*0)'
+      inputs:
+        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
+        template_dir: "{{conduit_dir}}/references"
+        path_task: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_tasks"
+        path_backlog: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
 
   - work_task:
-      description: Advance one existing to-do task, looping until a DONE verdict.
+      description: Advance up to max_per_tick_to_do to-do tasks, each fully to DONE.
       tool: tool:conduit
-      task: task-with-review
+      task: work-one-todo
       depends_on:
-        - "gate.output.match(work_on_to_do: true)"
-      repeat: 10
-      until: 'output.match(VERDICT:\s*DONE)'
+        - pick_name
+        - "pick.output.match(to_do_left: [1-9])"
+        - "usage_gate.output.match(development_ok: true)"
+        - "usage_gate.output.match(review_ok: true)"
+      # repeat = max_per_tick_to_do (config.yaml). work-one-todo advances one
+      # task to DONE per run and emits task_counter; until stops when 01_to-do
+      # drains. The inner DONE-loop lives in the work-one-todo conduit.
+      repeat: 15
+      until: 'output.match(task_counter:\s*0)'
       inputs:
-        task: |
-          You are advancing an autonomous project tracked in a folder-structured project directory.
-
-          Reviewer feedback from your previous attempt this run (empty on the
-          first iteration):
-          {{loop.previous}}
-
-          If that feedback is a NOT_DONE verdict, treat its REASON as the
-          priority signal — address what the reviewer flagged before doing
-          anything else.
-
-          The project markdown file is at: {{get_projects_dir.output}}/working/{{pick_project.output}}.md
-          You can extract the tasks_path from this output: {{gate.output}}
-
-          Do the following:
-          1. Read the project markdown file. Parse the YAML frontmatter (priority,
-             location, use_git), the `# Goal` section, and the `# Constraints` section if
-             present. Treat this file as READ-ONLY: it is owned by the human. Never edit it.
-             The constraints are binding — every task you execute must respect them. If a
-             constraint blocks the obvious next step or names a decision only the human can
-             make, do not work around it: record the conflict in the task's
-             `# How was done and tested`.
-          2. For memory of what has already happened, skim the task files in `done/` and
-             `in-review/` — their `# Description` and `# How was done and tested` sections
-             record past work. Use them to avoid repeating work already completed or awaiting review.
-          3. If in-progress/ has a .md file, resume it — skip to step 5 to finish that task.
-          4. Otherwise pick the top .md file in to-do/. This is the task to work on. Do NOT
-             propose or create new tasks — only existing to-do/in-progress tasks are executed.
-             If both to-do/ and in-progress/ are empty, output "NOTHING TO DO" and stop.
-             Move the chosen file from to-do/ to in-progress/.
-          5. Read the task file. The `# Description` section tells you what to do.
-          6. cd into the project's `location` directory from the frontmatter.
-          7. Do the work. Respect `use_git`: if true, commit changes with a clear message;
-             if false, just edit files.
-          8. Validation gate (mandatory before moving the task): run the project's FULL
-             automated test suite (e.g. `uv run pytest`), not only the tests you added.
-             Record the exact pass/fail counts in `# How was done and tested`. The suite MUST be
-             green before you move the task. If it is red, fix the regression or revert your
-             change — never move a task that leaves tests failing. Do NOT dismiss failures as
-             "pre-existing" unless you have proven it against the committed baseline: `git
-             stash` does NOT revert committed code, so it cannot establish a baseline. To
-             check, compare against HEAD before your own commits (e.g. `git stash` is invalid
-             here; use `git checkout <pre-work-commit> -- . ` in a scratch worktree, or run
-             the suite on a clean clone) — when unsure, assume the failure is yours.
-          9. When finished, update the task file: fill in the frontmatter (`datetime`
-             — the completion date AND time, e.g. the output of
-             `date '+%Y-%m-%d %H:%M:%S %Z'`; `location` (local path or PR URL);
-             `commits`) and the `# How was done and tested` section describing how you verified
-             the work. Then move the file from in-progress/ to in-review/. Never move
-             tasks to done/ — that is reserved for the human reviewer.
+        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
+        project_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
