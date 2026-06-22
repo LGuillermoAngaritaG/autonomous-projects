@@ -32,10 +32,35 @@ inputs:
   max_per_tick_to_do: {default: "5"}
 
 tasks:
+  - dep_guard:
+      description: Fail fast if uv or a configured harness CLI is missing from PATH.
+      tool: tool:bash
+      depends_on: []
+      task: |
+        set -euo pipefail
+        missing=()
+        command -v uv >/dev/null 2>&1 \
+          || missing+=("uv — install: curl -LsSf https://astral.sh/uv/install.sh | sh")
+        for h in "{{inputs.harness_ideation}}" "{{inputs.harness_development}}" "{{inputs.harness_review}}"; do
+          case "$h" in
+            cc)       bin=claude ;;
+            codex)    bin=codex ;;
+            opencode) bin=opencode ;;
+            *)        bin="$h" ;;
+          esac
+          command -v "$bin" >/dev/null 2>&1 \
+            || missing+=("$bin (harness '$h') — must be on PATH")
+        done
+        if ((${#missing[@]})); then
+          printf 'missing dependency: %s\n' "${missing[@]}" | sort -u >&2
+          exit 1
+        fi
+        printf 'deps ok\n'
+
   - get_projects_dir:
       description: Ensure the run directory's projects/ folder exists and emit its path.
       tool: tool:bash
-      depends_on: []
+      depends_on: [dep_guard]
       task: |
         set -euo pipefail
         mkdir -p projects
