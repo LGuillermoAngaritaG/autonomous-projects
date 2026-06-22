@@ -11,11 +11,25 @@ inputs:
   harness_ideation: {default: "cc"}
 
 tasks:
+  - pick_task:
+      description: "Deterministically select one .md file from the inbox; emit its absolute path on line 1, then the raw file contents."
+      tool: tool:bash
+      depends_on: []
+      task: |
+        set -euo pipefail
+        f="$(find "{{inputs.path_task}}" -maxdepth 1 -type f -name '*.md' | sort | head -n1)"
+        if [ -z "$f" ]; then
+          echo "ERROR: no .md task file in {{inputs.path_task}}" >&2
+          exit 1
+        fi
+        printf '%s\n' "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+        cat "$f"
+
   - improve_task:
       description: Improve a task provided by the user.
       tool: tool:conduit
       task: "run-{{inputs.harness_ideation}}"
-      depends_on: []
+      depends_on: [pick_task]
       retries: 2
       retry_backoff: 5
       inputs:
@@ -28,8 +42,17 @@ tasks:
 
           Then focus on the codebase at the path outlined in the project document.
 
-          Your job is to take a task from the user's task inbox at {{inputs.path_task}} 
-          and generate an improved version of it without changing its core meaning or intent.
+          Your job is to improve the raw task below without changing its core
+          meaning or intent. The block comes from {{pick_task.output}}: its FIRST
+          line is the file's path (ignore it) and everything AFTER the first line
+          is the original task text to improve.
+
+          Raw task:
+          ---
+          {{pick_task.output}}
+          ---
+
+          Generate an improved version of that task.
 
           Produce exactly ONE improved version of the task.
 
@@ -80,12 +103,16 @@ tasks:
       description: Assemble the task document from the template and write it to path_backlog.
       tool: tool:conduit
       task: "run-{{inputs.harness_ideation}}"
-      depends_on: [improve_task, generate_plan]
+      depends_on: [pick_task, improve_task, generate_plan]
       retries: 2
       retry_backoff: 5
       inputs:
         prompt: |
           Create one task document and write it to disk.
+
+          The original raw task is in {{pick_task.output}}: its FIRST line is the
+          absolute path of the source file in the inbox, and everything AFTER the
+          first line is the user's original task text, verbatim.
 
           1. Read the template at:
              {{inputs.template_dir}}/task_template.md
@@ -93,7 +120,9 @@ tasks:
              "# User comments", "# What was done", "# How was done and tested".
 
           2. Fill the sections:
-             - "# Description": Original user task
+             - "# Description": the user's original task text, verbatim — that is
+               everything AFTER the first line of {{pick_task.output}}. Copy it as
+               written; do NOT reconstruct it from the improved spec.
              - "# Spec": ONLY the text between the "===TASK START===" and
                "===TASK END===" markers in the task below. Discard everything
                outside the markers (model narration, the markers themselves, and
@@ -114,7 +143,8 @@ tasks:
              Then write the filled document to:
              {{inputs.path_backlog}}/task_<slug>.md
              (literal prefix "task_" followed by the slug, e.g. task_dark-mode.md).
-             finally, delete the original task file from the inbox at {{inputs.path_task}}.
+             finally, delete exactly the source file named on the FIRST line of
+             {{pick_task.output}} (its absolute path) — not a guessed file.
 
           Task:
           ---

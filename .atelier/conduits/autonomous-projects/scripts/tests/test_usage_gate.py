@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from usage_gate import read_project_ceilings, role_ok
+from usage_gate import _ceiling, read_project_ceilings, role_ok
 
 CEILINGS = {"claudecode": 80, "codex": 95, "opencode": 85}
 
@@ -29,6 +29,17 @@ def test_unreadable_usage_fails_open():
 def test_unknown_harness_not_throttled():
     assert role_ok("", {"claudecode": 99}, CEILINGS) is True
     assert role_ok("bogus", {"claudecode": 99}, CEILINGS) is True
+
+
+def test_ceiling_garbage_is_no_limit():
+    # Empty/non-numeric override -> 100 (no limit), so the gate never crashes
+    # and the role stays open. Valid numbers still parse.
+    assert _ceiling("") == 100
+    assert _ceiling("foo") == 100
+    assert _ceiling(None) == 100
+    assert _ceiling("80") == 80
+    # An unparseable ceiling leaves the role open (0% usage < 100).
+    assert role_ok("cc", {"claudecode": 0}, {"claudecode": _ceiling("")}) is True
 
 
 def _make_md(text: str) -> str:

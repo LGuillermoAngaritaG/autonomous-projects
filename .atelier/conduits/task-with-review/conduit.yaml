@@ -1,7 +1,7 @@
 name: task-with-review
 description: Run a task with an AI agent and have a second agent judge whether it was completed
 timeout: 3600
-max_concurrency: 2
+max_concurrency: 1
 
 inputs:
   task: The task to perform

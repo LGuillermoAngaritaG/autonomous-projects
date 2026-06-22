@@ -1,9 +1,9 @@
 [project]
 name = "gates"
 version = "0.1.0"
-description = "Add your description here"
+description = "Project picker / per-bucket work-left gates for autonomous-projects"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0.3",
 ]

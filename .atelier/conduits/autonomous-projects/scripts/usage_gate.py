@@ -91,11 +91,20 @@ def read_project_ceilings(path: str) -> dict[str, int]:
     return result
 
 
+def _ceiling(s: str) -> int:
+    # ponytail: unparseable/empty ceiling -> no limit (100), so the gate keeps
+    # its always-exit-0 / fail-open contract even on a bad override.
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return 100
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--max-usage-cc", type=int, default=100)
-    parser.add_argument("--max-usage-codex", type=int, default=100)
-    parser.add_argument("--max-usage-opencode", type=int, default=100)
+    parser.add_argument("--max-usage-cc", type=_ceiling, default=100)
+    parser.add_argument("--max-usage-codex", type=_ceiling, default=100)
+    parser.add_argument("--max-usage-opencode", type=_ceiling, default=100)
     parser.add_argument("--harness-ideation", default="cc")
     parser.add_argument("--harness-development", default="opencode")
     parser.add_argument("--harness-review", default="codex")
