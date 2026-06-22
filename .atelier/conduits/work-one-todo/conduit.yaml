@@ -1,0 +1,80 @@
+name: work-one-todo
+description: >
+  Advance ONE to-do task to completion: loop task-with-review until the
+  reviewer returns VERDICT: DONE (or the retry cap is hit), then emit
+  task_counter: N (the .md files still in 01_to-do) so a parent loop can
+  advance up to max_per_tick_to_do tasks and stop when the queue drains.
+
+timeout: 7200
+max_concurrency: 1
+
+inputs:
+  project_document: "Path to the project's project.md (read-only, owned by the human)."
+  project_dir: "Path to the project folder holding the numbered stage subfolders."
+
+tasks:
+  - advance:
+      description: Advance the top to-do task, looping until a DONE verdict.
+      tool: tool:conduit
+      task: task-with-review
+      depends_on: []
+      repeat: 10
+      until: 'output.match(VERDICT:\s*DONE)'
+      inputs:
+        task: |
+          You are advancing an autonomous project tracked in a folder-structured project directory.
+
+          Reviewer feedback from your previous attempt this run (empty on the
+          first iteration):
+          {{loop.previous}}
+
+          If that feedback is a NOT_DONE verdict, treat its REASON as the
+          priority signal — address what the reviewer flagged before doing
+          anything else.
+
+          The project markdown file is at: {{inputs.project_document}}
+          The project's stage folders are under: {{inputs.project_dir}}/
+
+          Do the following:
+          1. Read the project markdown file. Parse the YAML frontmatter (priority,
+             location, use_git), the `# Goal` section, and the `# Constraints` section if
+             present. Treat this file as READ-ONLY: it is owned by the human. Never edit it.
+             The constraints are binding — every task you execute must respect them. If a
+             constraint blocks the obvious next step or names a decision only the human can
+             make, do not work around it: record the conflict in the task's
+             `# How was done and tested`.
+          2. For memory of what has already happened, skim the task files in `04_done/` and
+             `03_to-review/` — their `# Description` and `# How was done and tested` sections
+             record past work. Use them to avoid repeating work already completed or awaiting review.
+          3. If 02_in-progress/ has a .md file, resume it — skip to step 5 to finish that task.
+          4. Otherwise pick the top .md file in 01_to-do/. This is the task to work on. Do NOT
+             propose or create new tasks — only existing 01_to-do/02_in-progress tasks are executed.
+             If both 01_to-do/ and 02_in-progress/ are empty, output "NOTHING TO DO" and stop.
+             Move the chosen file from 01_to-do/ to 02_in-progress/.
+          5. Read the task file. The `# Description` section tells you what to do.
+          6. cd into the project's `location` directory from the frontmatter.
+          7. Do the work. Respect `use_git`: if true, commit changes with a clear message;
+             if false, just edit files.
+          8. Validation gate (mandatory before moving the task): run the project's FULL
+             automated test suite (e.g. `uv run pytest`), not only the tests you added.
+             Record the exact pass/fail counts in `# How was done and tested`. The suite MUST be
+             green before you move the task. If it is red, fix the regression or revert your
+             change — never move a task that leaves tests failing. Do NOT dismiss failures as
+             "pre-existing" unless you have proven it against the committed baseline: `git
+             stash` does NOT revert committed code, so it cannot establish a baseline. To
+             check, compare against HEAD before your own commits (e.g. `git stash` is invalid
+             here; use `git checkout <pre-work-commit> -- . ` in a scratch worktree, or run
+             the suite on a clean clone) — when unsure, assume the failure is yours.
+          9. When finished, update the task file: fill in the frontmatter (`datetime`
+             — the completion date AND time, e.g. the output of
+             `date '+%Y-%m-%d %H:%M:%S %Z'`; `location` (local path or PR URL);
+             `commits`) and the `# How was done and tested` section describing how you verified
+             the work. Then move the file from 02_in-progress/ to 03_to-review/. Never move
+             tasks to 04_done/ — that is reserved for the human reviewer.
+
+  - count_todo:
+      description: "Emit 'task_counter: N' (.md files still in 01_to-do) so a parent loop stops at 0."
+      tool: tool:bash
+      depends_on: [advance]
+      task: |
+        uv run --no-project "{{conduit_dir}}/scripts/count_tasks.py" "{{inputs.project_dir}}/01_to-do"

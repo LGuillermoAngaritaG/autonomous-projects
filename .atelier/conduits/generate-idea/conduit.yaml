@@ -1,20 +1,10 @@
 name: generate-idea
 description: Generate one idea for a project, plan it, and store it as an idea document.
 timeout: 3600
-max_concurrency: 3
+max_concurrency: 1
 
 inputs:
   project_document: Path to the project document (goal/constraints/context) the agent reads.
-  template_dir: Directory holding task_template.md (threaded from the parent conduit).
-  path_idea: Target folder where the final idea_<name>.md document is written.
-  bad_ideas:
-    description: Folder of rejected ideas plus the user's reasoning; avoid ideas of those kinds.
-    default: ""
-  tasks_dir:
-    description: >-
-      Project task directory holding to-do/, in-progress/, in-review/, done/;
-      the new idea must not duplicate work already queued, being worked, or implemented.
-    default: ""
 
 tasks:
   - generate_idea:
@@ -39,8 +29,8 @@ tasks:
           Each file holds a bad idea and the user's reasoning for why it is bad.
           Do NOT propose ideas of those kinds; respect the stated reasoning.
         - Existing tasks live under this directory: {{inputs.tasks_dir}}
-          Read the .md files in its `to-do/`, `in-progress/`, `in-review/`,
-          and `done/` subfolders — their `# Description` sections describe work
+          Read the .md files in its `01_to-do/`, `02_in-progress/`, `03_to-review/`,
+          and `04_done/` subfolders — their `# Description` sections describe work
           already queued, being worked, implemented and awaiting review, or
           completed (`# What was done` records the result for finished tasks).
           Your new idea MUST NOT duplicate any of them.
@@ -138,3 +128,14 @@ tasks:
         ---
         {{generate_plan.output}}
         ---
+
+  - count_remaining:
+      description: "Emit 'remaining: N' (max_ideas - idea_*.md count) so a parent loop stops at the cap."
+      tool: tool:bash
+      depends_on: [store_idea]
+      task: |
+        uv run --no-project "{{conduit_dir}}/scripts/count_remaining.py" \
+          --doc "{{inputs.project_document}}" \
+          --folder "{{inputs.path_idea}}" \
+          --cap-key max_ideas \
+          --prefix idea_
