@@ -64,6 +64,15 @@ tasks:
       task: |
         set -euo pipefail
         mkdir -p projects
+        if [ -z "$(find projects -mindepth 1 -maxdepth 1 -type d -print -quit)" ]; then
+          abs="$(pwd -P)"
+          {
+            printf 'Workspace ready: %s\n' "$abs"
+            printf 'No projects yet, so this tick will do nothing.\n'
+            printf 'Add one:  python3 %s/scripts/new_project.py <name>\n' "{{conduit_dir}}"
+            printf '(see the README "Scaffold a project" / Quickstart), then run again.\n'
+          } >&2
+        fi
         printf '%s' "$(pwd -P)"
 
   - pick:
