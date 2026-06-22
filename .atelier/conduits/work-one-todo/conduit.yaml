@@ -15,11 +15,18 @@ inputs:
   harness_review: {default: "codex"}
 
 tasks:
+  - pick:
+      description: "Emit the highest-priority to-do filename (priority asc, name asc)."
+      tool: tool:bash
+      depends_on: []
+      task: |
+        uv run --no-project "{{conduit_dir}}/scripts/pick_next_task.py" "{{inputs.project_dir}}"
+
   - advance:
-      description: Advance the top to-do task, looping until a DONE verdict.
+      description: Advance the highest-priority to-do task, looping until a DONE verdict.
       tool: tool:conduit
       task: task-with-review
-      depends_on: []
+      depends_on: [pick]
       repeat: 10
       until: 'output.match(VERDICT:\s*DONE|NOTHING TO DO)'
       inputs:
@@ -51,10 +58,11 @@ tasks:
              `03_to-review/` — their `# Description` and `# How was done and tested` sections
              record past work. Use them to avoid repeating work already completed or awaiting review.
           3. If 02_in-progress/ has a .md file, resume it — skip to step 5 to finish that task.
-          4. Otherwise pick the top .md file in 01_to-do/. This is the task to work on. Do NOT
+          4. Otherwise work on this exact to-do file, already chosen by priority (lowest
+             `priority` number first, ties by filename ascending): `{{pick.output}}`. Do NOT
              propose or create new tasks — only existing 01_to-do/02_in-progress tasks are executed.
-             If both 01_to-do/ and 02_in-progress/ are empty, output "NOTHING TO DO" and stop.
-             Move the chosen file from 01_to-do/ to 02_in-progress/.
+             If `{{pick.output}}` is empty and 02_in-progress/ is also empty, output
+             "NOTHING TO DO" and stop. Move the chosen file from 01_to-do/ to 02_in-progress/.
           5. Read the task file. The `# Description` section tells you what to do.
           6. cd into the project's `location` directory from the frontmatter.
           7. Do the work. Respect `use_git`: if true, commit changes with a clear message;
