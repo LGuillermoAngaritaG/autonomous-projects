@@ -19,7 +19,7 @@ tasks:
       task: task-with-review
       depends_on: []
       repeat: 10
-      until: 'output.match(VERDICT:\s*DONE)'
+      until: 'output.match(VERDICT:\s*DONE|NOTHING TO DO)'
       inputs:
         task: |
           You are advancing an autonomous project tracked in a folder-structured project directory.

@@ -48,5 +48,6 @@ tasks:
         or:
         VERDICT: NOT_DONE
         REASON: <one short sentence>
-      tool: harness:codex
-      depends_on: [do_task]
+      tool: harness:claude-code
+      depends_on:
+        - do_task.output.not_match(NOTHING TO DO)
