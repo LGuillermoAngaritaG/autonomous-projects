@@ -22,8 +22,8 @@ def count_files(projects_root: Path, table: list[dict]) -> list[dict]:
         backlog = project / "00_backlog"
         row["count_00_ideas"] = _count(backlog, "idea_*")
         row["count_00_reviews"] = _count(backlog, "review_*")
-        row["count_00_tasks"] = _count(project / "00_tasks")
-        row["count_01_to_do"] = _count(project / "01_to-do")
+        row["count_00_tasks"] = _count(project / "00_tasks", "*.md")
+        row["count_01_to_do"] = _count(project / "01_to-do", "*.md")
         row["count_02_in_progress"] = _count(project / "02_in-progress")
         row["count_03_to_review"] = _count(project / "03_to-review")
     return table

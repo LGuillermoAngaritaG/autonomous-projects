@@ -88,6 +88,26 @@ def test_to_do_left_counts_queued_tasks(tmp_path):
     assert select_project(table)["to_do_left"] == 2
 
 
+def test_non_md_files_dont_count_as_work(tmp_path):
+    # Picker must count only *.md, matching the worker. A stray non-.md file in
+    # 01_to-do/ or 00_tasks/ must not report phantom work (or the work/improve
+    # branch wakes every tick over an empty bucket, burning agent calls).
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "StrayFiles",
+        "---\npriority: 1\nstate: working\nmax_ideas: 0\nmax_reviews: 0\nmax_to_do: 5\n---\n",
+        {"01_to-do": ["notes.txt"], "00_tasks": ["scratch.log"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    row = next(r for r in table if r["project_name"] == "StrayFiles")
+    assert row["count_01_to_do"] == 0
+    assert row["count_00_tasks"] == 0
+    # nothing left -> excluded
+    assert select_project(table, min_idle=0)["project_name"] == ""
+
+
 def test_idle_gate_excludes_fresh(tmp_path):
     root = _build(tmp_path)
     table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))

@@ -251,8 +251,8 @@ How it decides:
 - **The four buckets** (each clamped at `≥ 0`):
   - `ideas_left  = max_ideas   − count(00_backlog/idea_*)`
   - `reviews_left = max_reviews − count(00_backlog/review_*)`
-  - `to_do_left  = max_to_do   − count(01_to-do/*)`
-  - `to_improve_left = count(00_tasks/*)`   ← raw tasks waiting to be spec'd
+  - `to_do_left  = count(01_to-do/*.md)`
+  - `to_improve_left = count(00_tasks/*.md)`   ← raw `.md` tasks waiting to be spec'd
 - **Selection.** Among eligible projects, sort by `priority` ascending
   (1 wins); break ties by `idle` descending (longest-idle first). The top
   project is printed. If none qualify, every count is `0` and the whole tick
