@@ -8,6 +8,7 @@ _EMPTY = {
     "reviews_left": 0,
     "to_do_left": 0,
     "to_improve_left": 0,
+    "reason": "",
 }
 
 
@@ -44,11 +45,25 @@ def select_project(table: list[dict], min_idle: float = MIN_IDLE_MINUTES) -> dic
             and row["to_improve_left"] == 0
         )
     ]
-    if not survivors:
-        return dict(_EMPTY)
+    if survivors:
+        survivors.sort(key=lambda r: (r["priority"], -r["idle_time"]))
+        chosen = survivors[0]
+        chosen["reason"] = "selected"
+        return chosen
 
-    survivors.sort(key=lambda r: (r["priority"], -r["idle_time"]))
-    return survivors[0]
+    sentinel = dict(_EMPTY)
+    if not table:
+        sentinel["reason"] = "no projects found"
+    elif not any(r["state"] == "working" for r in table):
+        sentinel["reason"] = "all paused"
+    elif not any(
+        r["state"] == "working" and r["idle_time"] >= _row_min_idle(r)
+        for r in table
+    ):
+        sentinel["reason"] = "none idle yet"
+    else:
+        sentinel["reason"] = "no work left"
+    return sentinel
 
 
 def format_selection(row: dict) -> str:
@@ -57,10 +72,13 @@ def format_selection(row: dict) -> str:
     :param row: result of select_project.
     :returns: the formatted multi-line string.
     """
-    return (
+    block = (
         f'project_name: "{row["project_name"]}"\n'
         f"ideas_left: {row['ideas_left']}\n"
         f"reviews_left: {row['reviews_left']}\n"
         f"to_do_left: {row['to_do_left']}\n"
         f"to_improve_left: {row['to_improve_left']}"
     )
+    if "reason" in row:
+        block += f"\nreason: {row['reason']}"
+    return block

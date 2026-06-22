@@ -98,6 +98,7 @@ def test_idle_gate_excludes_fresh(tmp_path):
         "reviews_left": 0,
         "to_do_left": 0,
         "to_improve_left": 0,
+        "reason": "no work left",
     }
 
 
@@ -200,6 +201,83 @@ def test_per_project_idle_absent_falls_back(tmp_path):
     # No idle_hours key → uses global min_idle
     chosen = select_project(table, min_idle=9999)
     assert chosen["project_name"] == ""  # excluded by the huge global idle gate
+
+
+def test_reason_selected(tmp_path):
+    root = _build(tmp_path)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    chosen = select_project(table)
+    assert chosen["reason"] == "selected"
+    assert chosen["project_name"] == "Project-A"
+
+
+def test_reason_no_projects_found(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    chosen = select_project(table)
+    assert chosen["reason"] == "no projects found"
+
+
+def test_reason_all_paused(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "PausedProj",
+        "---\npriority: 1\nstate: paused\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    chosen = select_project(table)
+    assert chosen["reason"] == "all paused"
+
+
+def test_reason_none_idle_yet(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "Fresh",
+        "---\npriority: 1\nstate: working\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    chosen = select_project(table)
+    assert chosen["reason"] == "none idle yet"
+
+
+def test_reason_no_work_left(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "Done",
+        "---\npriority: 1\nstate: working\nmax_ideas: 0\nmax_reviews: 0\nmax_to_do: 0\n---\n",
+        {},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    chosen = select_project(table)
+    assert chosen["reason"] == "no work left"
+
+
+def test_format_reason_line():
+    block = format_selection(
+        {"project_name": "X", "ideas_left": 1, "reviews_left": 2,
+         "to_do_left": 3, "to_improve_left": 4, "reason": "selected"}
+    )
+    assert block.endswith("\nreason: selected")
+
+
+def test_format_reason_omitted_when_absent():
+    block = format_selection(
+        {"project_name": "X", "ideas_left": 1, "reviews_left": 2,
+         "to_do_left": 3, "to_improve_left": 4}
+    )
+    assert "reason" not in block
+    assert block == (
+        'project_name: "X"\nideas_left: 1\nreviews_left: 2\n'
+        "to_do_left: 3\nto_improve_left: 4"
+    )
 
 
 def test_per_project_idle_malformed_degrade(tmp_path):
