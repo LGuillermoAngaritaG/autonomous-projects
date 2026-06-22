@@ -13,9 +13,11 @@ DEFAULTS: dict = {
     "max_ideas": 0,
     "max_reviews": 0,
     "max_to_do": 0,
+    "idle_hours": None,
 }
 _INT_FIELDS = ("priority", "max_ideas", "max_reviews", "max_to_do")
 _BOOL_FIELDS = ("use_git",)
+_FLOAT_FIELDS = ("idle_hours",)
 
 
 def parse_frontmatter(md_path: Path) -> dict:
@@ -57,6 +59,19 @@ def _coerce_bool(value, default: bool) -> bool:
     return default
 
 
+def _coerce_float(value, default: float | None) -> float | None:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        print(
+            f"warning: non-numeric idle_hours {value!r}; falling back to run-level default",
+            file=sys.stderr,
+        )
+        return default
+
+
 def merge_frontmatter(projects_root: Path, table: list[dict]) -> list[dict]:
     """Merge front-matter fields (with defaults) into each row of the table.
 
@@ -72,5 +87,7 @@ def merge_frontmatter(projects_root: Path, table: list[dict]) -> list[dict]:
                 value = _coerce_int(value, default)
             elif key in _BOOL_FIELDS:
                 value = _coerce_bool(value, default)
+            elif key in _FLOAT_FIELDS:
+                value = _coerce_float(value, default)
             row[key] = value
     return table

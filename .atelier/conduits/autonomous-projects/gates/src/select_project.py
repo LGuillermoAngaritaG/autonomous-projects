@@ -28,10 +28,14 @@ def select_project(table: list[dict], min_idle: float = MIN_IDLE_MINUTES) -> dic
         row["reviews_left"] = max(row["max_reviews"] - row["count_00_reviews"], 0)
         row["to_improve_left"] = row["count_00_tasks"]
 
+    def _row_min_idle(row: dict) -> float:
+        per_project = row.get("idle_hours")
+        return per_project * 60 if per_project is not None else min_idle
+
     survivors = [
         row
         for row in table
-        if row["idle_time"] >= min_idle
+        if row["idle_time"] >= _row_min_idle(row)
         and row["state"] == "working"
         and not (
             row["ideas_left"] == 0

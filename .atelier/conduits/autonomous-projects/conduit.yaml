@@ -126,7 +126,7 @@ tasks:
   - usage_gate:
       description: Emit per-role usage-throttle flags (ideation/development/review _ok).
       tool: tool:bash
-      depends_on: [get_projects_dir]
+      depends_on: [pick_name]
       task: |
         set -euo pipefail
         python3 {{conduit_dir}}/scripts/usage_gate.py \
@@ -135,7 +135,8 @@ tasks:
           --max-usage-opencode "{{inputs.max_usage_opencode}}" \
           --harness-ideation "{{inputs.harness_ideation}}" \
           --harness-development "{{inputs.harness_development}}" \
-          --harness-review "{{inputs.harness_review}}"
+          --harness-review "{{inputs.harness_review}}" \
+          --project-md "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
 
   - generate_idea:
       description: Generate one idea into the project's 00_backlog/ folder.

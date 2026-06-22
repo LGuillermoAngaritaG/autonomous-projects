@@ -167,6 +167,67 @@ def test_version_flag_exits_zero(capsys):
     assert expected in capsys.readouterr().out
 
 
+def test_per_project_idle_wins(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "HasOverride",
+        "---\npriority: 1\nstate: working\nmax_ideas: 10\nidle_hours: 2\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _make_project(
+        root, "NoOverride",
+        "---\npriority: 2\nstate: working\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)  # both ~1h idle
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    # NoOverride passes the global min_idle (15 min), HasOverride needs 120 min → excluded.
+    chosen = select_project(table, min_idle=15)
+    assert chosen["project_name"] == "NoOverride"
+
+
+def test_per_project_idle_absent_falls_back(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "NoKey",
+        "---\npriority: 1\nstate: working\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    # No idle_hours key → uses global min_idle
+    chosen = select_project(table, min_idle=9999)
+    assert chosen["project_name"] == ""  # excluded by the huge global idle gate
+
+
+def test_per_project_idle_malformed_degrade(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "BadVal",
+        "---\npriority: 1\nstate: working\nmax_ideas: 10\nidle_hours: abc\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    # idle_hours: abc → degraded to None → uses global min_idle → passes at 0
+    chosen = select_project(table, min_idle=0)
+    assert chosen["project_name"] == "BadVal"
+
+
+def test_coerce_float_none_returns_none():
+    from src.parse_frontmatter import _coerce_float
+    assert _coerce_float(None, None) is None
+
+
+def test_coerce_float_valid():
+    from src.parse_frontmatter import _coerce_float
+    assert _coerce_float(2.5, None) == 2.5
+    assert _coerce_float("3.0", 0.0) == 3.0
+
+
 def test_format_block(tmp_path):
     block = format_selection(
         {"project_name": "X", "ideas_left": 1, "reviews_left": 2,
