@@ -430,3 +430,16 @@ with ideas and reviews, improves any raw tasks you dropped, and advances up to
 five approved to-do tasks through the two-agent DONE loop — backing off any AI
 tool that's near its usage ceiling. You wake up to a triaged backlog and
 reviewed diffs waiting for your yes.
+
+**Single-flight (cron / custom timers).** A tick may run up to 2h, so on a
+30-min interval a slow tick can still be working when the next fires — two runs
+then race over the same project files. Wrap the invocation in `tick_lock.py` so
+the second run prints a skip note and exits instead:
+
+```bash
+python3 .atelier/conduits/autonomous-projects/scripts/tick_lock.py \
+  atelier run autonomous-projects
+```
+
+It takes an OS advisory lock for the whole run; the kernel releases it if the
+run crashes or is killed, so a dead run never jams the loop.
