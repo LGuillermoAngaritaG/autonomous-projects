@@ -23,11 +23,15 @@ def select_project(table: list[dict], min_idle: float = MIN_IDLE_MINUTES) -> dic
     """
     for row in table:
         row["ideas_left"] = max(row["max_ideas"] - row["count_00_ideas"], 0)
-        # to_do_left = tasks actually waiting in 01_to-do (the human approved them),
-        # NOT free capacity. work_task must run only when real tasks are queued;
-        # gating on capacity made it fire over an empty queue. max_to_do no longer
-        # gates anything (the bot never fills 01_to-do — the human does).
-        row["to_do_left"] = row["count_01_to_do"]
+        # to_do_left = real work the bot owns: tasks the human approved into
+        # 01_to-do PLUS tasks it already started but hasn't finished in
+        # 02_in-progress. Counting in-progress keeps a stranded task's project
+        # eligible so the next tick resumes it (work-one-todo step 3) instead of
+        # the picker skipping the project as "no work left". work_task gates on
+        # to_do_left, NOT free capacity (gating on capacity fired over an empty
+        # queue). max_to_do no longer gates anything (the bot never fills
+        # 01_to-do — the human does).
+        row["to_do_left"] = row["count_01_to_do"] + row["count_02_in_progress"]
         row["reviews_left"] = max(row["max_reviews"] - row["count_00_reviews"], 0)
         row["to_improve_left"] = row["count_00_tasks"]
 

@@ -24,6 +24,8 @@ def count_files(projects_root: Path, table: list[dict]) -> list[dict]:
         row["count_00_reviews"] = _count(backlog, "review_*")
         row["count_00_tasks"] = _count(project / "00_tasks", "*.md")
         row["count_01_to_do"] = _count(project / "01_to-do", "*.md")
-        row["count_02_in_progress"] = _count(project / "02_in-progress")
+        # *.md only: select_project folds this into to_do_left, and the worker
+        # only ever resumes a .md task — a stray non-.md must not register work.
+        row["count_02_in_progress"] = _count(project / "02_in-progress", "*.md")
         row["count_03_to_review"] = _count(project / "03_to-review")
     return table

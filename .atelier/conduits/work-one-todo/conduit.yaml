@@ -76,6 +76,16 @@ tasks:
              the work. Then move the file from 02_in-progress/ to 03_to-review/. Never move
              tasks to 04_done/ — that is reserved for the human reviewer.
 
+  - block_stranded:
+      description: >
+        If the advance loop gave up, a .md is still in 02_in-progress/. Move it
+        to 05_blocked/ with a "needs a human" note instead of leaving it
+        silently retried (and the picker re-eligible) every tick.
+      tool: tool:bash
+      depends_on: [advance]
+      task: |
+        uv run --no-project "{{conduit_dir}}/scripts/block_stranded.py" "{{inputs.project_dir}}"
+
   - count_todo:
       description: "Emit 'task_counter: N' (.md files still in 01_to-do) so a parent loop stops at 0."
       tool: tool:bash

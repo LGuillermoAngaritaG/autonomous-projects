@@ -3,7 +3,8 @@ description: >
   Pick the highest-priority idle project from this conduit's own project
   folders and advance it. Projects live in projects/<name>/ with a project.md
   (YAML frontmatter, state: working|paused) and numbered stage folders
-  (00_backlog, 00_tasks, 01_to-do, 02_in-progress, 03_to-review, 04_done).
+  (00_backlog, 00_tasks, 01_to-do, 02_in-progress, 03_to-review, 04_done;
+  05_blocked holds tasks the review loop gave up on, awaiting a human).
   The gates picker reports how much work each bucket has left; each branch
   runs only while its bucket is non-empty and the harness is under its usage
   ceiling. If no project is eligible, every bucket reads 0 and the tick

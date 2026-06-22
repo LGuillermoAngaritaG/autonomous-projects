@@ -88,6 +88,41 @@ def test_to_do_left_counts_queued_tasks(tmp_path):
     assert select_project(table)["to_do_left"] == 2
 
 
+def test_in_progress_keeps_project_eligible(tmp_path):
+    # A task already moved into 02_in-progress/ is real work the bot owns; the
+    # picker must keep its project eligible so the next tick resumes it instead
+    # of skipping it as "no work left".
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "Stranded",
+        "---\npriority: 1\nstate: working\nmax_ideas: 0\nmax_reviews: 0\nmax_to_do: 5\n---\n",
+        {"02_in-progress": ["task_x.md"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    chosen = select_project(table)
+    assert chosen["project_name"] == "Stranded"
+    assert chosen["to_do_left"] == 1
+
+
+def test_in_progress_non_md_not_counted(tmp_path):
+    # A stray non-.md in 02_in-progress/ must not register as work (the worker
+    # only resumes .md), or the project wakes every tick over a phantom task.
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "StrayInProgress",
+        "---\npriority: 1\nstate: working\nmax_ideas: 0\nmax_reviews: 0\nmax_to_do: 5\n---\n",
+        {"02_in-progress": ["scratch.log"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    row = next(r for r in table if r["project_name"] == "StrayInProgress")
+    assert row["count_02_in_progress"] == 0
+    assert select_project(table, min_idle=0)["project_name"] == ""
+
+
 def test_non_md_files_dont_count_as_work(tmp_path):
     # Picker must count only *.md, matching the worker. A stray non-.md file in
     # 01_to-do/ or 00_tasks/ must not report phantom work (or the work/improve
