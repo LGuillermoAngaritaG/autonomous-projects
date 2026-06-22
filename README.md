@@ -32,6 +32,56 @@ you:        └────▶ 01_to-do/                        └─▶ 04_don
 you drop raw tasks ▶ 00_tasks/ ──(bot improves)──▶ 00_backlog/
 ```
 
+## Quickstart
+
+**1. Install flow-atelier and this package.**
+
+```bash
+uv tool install flow-atelier
+atelier add LGuillermoAngaritaG/autonomous-projects
+atelier list conduits        # confirm autonomous-projects appears
+```
+
+**2. Create a workspace folder and your first project.**
+
+```bash
+cd ~/work
+mkdir -p projects/my-api/{00_backlog,00_tasks,00_abandoned,01_to-do,02_in-progress,03_to-review,04_done}
+cat > projects/my-api/project.md << 'EOF'
+---
+location: /abs/path/to/your/codebase
+priority: 1
+use_git: true
+state: working
+max_ideas: 10
+max_reviews: 5
+max_to_do: 5
+---
+# Goal
+What you want done.
+
+# Description
+Short context.
+
+# Constraints
+Anything the bot must respect.
+EOF
+```
+
+**3. Run one tick.**
+
+```bash
+atelier run autonomous-projects
+```
+
+The first tick creates `projects/`, picks your project, tops up the backlog with proposals, and exits. Nothing reaches `04_done/` yet -- that is your move.
+
+**4. See the output and triage.**
+
+Proposals land in `projects/my-api/00_backlog/`. Move the good ones to `projects/my-api/01_to-do/` -- the next tick will implement them.
+
+For front-matter fields, board mechanics, tick internals, and tuning, see the sections below.
+
 ---
 
 ## Install
