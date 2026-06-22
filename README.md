@@ -300,16 +300,15 @@ picker's output — e.g. `ideas_left: [1-9]` matches any non-zero count:
 ### 5. Per-tick limits (`max_per_tick_*`)
 Each branch loops up to a per-tick cap, then stops early when its bucket is
 exhausted. The caps live in the conduit as literal `repeat:` values
-(idea `1`, review `1`, improve_task `5`, to_do `5`):
+(idea `20`, review `15`, improve_task `15`, to_do `15`):
 
+- `generate_idea` / `generate_review` loop until each emits `remaining: 0`
+  (the project-level `max_ideas`/`max_reviews` total is reached), capped at the
+  per-tick `repeat:` (20 / 15). The effective cap is `min(repeat, remaining)`.
 - `improve_task` loops `improve-task` until its `task_counter` hits `0` (inbox
-  drained), capped at 5.
-- `work_task` loops `work-one-todo` until `01_to-do/` is empty, capped at 5 —
+  drained), capped at 15.
+- `work_task` loops `work-one-todo` until `01_to-do/` is empty, capped at 15 —
   each iteration carries one task all the way to a DONE verdict.
-- Ideas/reviews run once (`repeat: 1`). The `generate-idea`/`generate-review`
-  conduits already emit a `remaining:` count tail, so raising their cap is a
-  two-line edit (set `repeat: N>1` and add
-  `until: 'output.match(remaining:\s*0)'`).
 
 > The atelier engine requires `repeat:` to be a **literal integer** — it cannot
 > read `{{inputs.max_per_tick_*}}`. So the caps are mirrored as literals on each
@@ -356,11 +355,11 @@ files so the outer per-tick loop knows whether to advance another task.
 | `harness_ideation` | `cc` | Harness for ideas + reviews + task improvement. |
 | `harness_development` | `opencode` | Harness that does the build half of `work_task`. |
 | `harness_review` | `codex` | Harness that does the review half of `work_task`. |
-| `max_per_tick_generate_idea` | `1` | Documented per-tick cap (mirror in the task's `repeat:`). |
-| `max_per_tick_generate_review` | `1` | "" |
-| `max_per_tick_improve_task` | `5` | "" |
-| `max_per_tick_to_do` | `5` | "" |
-| `automatic_to_do_task` / `_review` / `_idea` | `true` / `false` / `false` | Declared for parity with `config.yaml`; not yet wired to any branch. |
+| `max_per_tick_generate_idea` | `20` | Per-tick cap mirror (authoritative value is the task's `repeat:`; further bounded by the project `max_ideas` total). |
+| `max_per_tick_generate_review` | `15` | "" (bounded by `max_reviews`). |
+| `max_per_tick_improve_task` | `15` | "" (inbox drain). |
+| `max_per_tick_to_do` | `15` | "" (`01_to-do/` drain). |
+| `automatic_to_do_task` / `_review` / `_idea` | `true` / `false` / `false` | Per-activity on/off switch. The `flags` task gates `work_task` / `generate_review` / `generate_idea` on these; `false` suppresses that activity for the tick. (`improve_task` has no switch.) |
 
 ```bash
 atelier run autonomous-projects --input idle_hours=2 --input max_usage_cc=60

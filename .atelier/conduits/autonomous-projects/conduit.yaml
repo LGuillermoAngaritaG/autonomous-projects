@@ -21,7 +21,8 @@ inputs:
   harness_ideation: {default: "cc"}
   harness_development: {default: "opencode"}
   harness_review: {default: "codex"}
-  # Declared for parity with config.yaml; not yet wired to any branch.
+  # Automation on/off switches. The `flags` task echoes these so each branch's
+  # depends_on can gate on them (idea/review/task). improve_task has no switch.
   automatic_to_do_task: {default: "true"}
   automatic_to_do_review: {default: "false"}
   automatic_to_do_idea: {default: "false"}
@@ -87,7 +88,10 @@ tasks:
       depends_on: [get_projects_dir]
       task: |
         set -euo pipefail
-        mins="$(python3 -c 'print({{inputs.idle_hours}} * 60)')"
+        # idle_hours -> minutes via a guard that defaults+warns on blank/bad
+        # input instead of crashing the pick step (and the whole tick). Passing
+        # the value as argv (not spliced into -c source) also kills the inject footgun.
+        mins="$(python3 {{conduit_dir}}/scripts/idle_minutes.py "{{inputs.idle_hours}}")"
         # ponytail: the picker is the one gate everything depends on, yet runs
         # under uv. A transient uv resolve/sync hiccup must not take down the
         # whole tick — fall back to the same all-zero block select_project emits
@@ -153,6 +157,17 @@ tasks:
           --harness-review "{{inputs.harness_review}}" \
           --project-md "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
 
+  - flags:
+      description: Echo the automation on/off switches so branches can gate on them.
+      tool: tool:bash
+      depends_on: [get_projects_dir]
+      task: |
+        set -euo pipefail
+        printf 'idea_enabled: %s\nreview_enabled: %s\ntask_enabled: %s\n' \
+          "{{inputs.automatic_to_do_idea}}" \
+          "{{inputs.automatic_to_do_review}}" \
+          "{{inputs.automatic_to_do_task}}"
+
   - generate_idea:
       description: Generate one idea into the project's 00_backlog/ folder.
       tool: tool:conduit
@@ -161,6 +176,7 @@ tasks:
         - pick_name
         - "pick.output.match(ideas_left: [1-9])"
         - "usage_gate.output.match(ideation_ok: true)"
+        - "flags.output.match(idea_enabled: true)"
       repeat: 20  # per-tick cap (authoritative); mirror in config.yaml + inputs
       until: 'output.match(remaining:\s*0)'
       inputs:
@@ -179,6 +195,7 @@ tasks:
         - pick_name
         - "pick.output.match(reviews_left: [1-9])"
         - "usage_gate.output.match(ideation_ok: true)"
+        - "flags.output.match(review_enabled: true)"
       repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
       until: 'output.match(remaining:\s*0)'
       inputs:
@@ -215,6 +232,7 @@ tasks:
         - "pick.output.match(to_do_left: [1-9])"
         - "usage_gate.output.match(development_ok: true)"
         - "usage_gate.output.match(review_ok: true)"
+        - "flags.output.match(task_enabled: true)"
       repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
       until: 'output.match(task_counter:\s*0)'
       inputs:
