@@ -373,6 +373,35 @@ def test_skips_project_with_missing_location(tmp_path):
     assert select_project(table, min_idle=0)["project_name"] == ""
 
 
+def test_state_normalized_case_insensitive(tmp_path):
+    # `state: Working` (capital W) must still select — the value is trimmed and
+    # lower-cased before the `== "working"` comparison.
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "CapState",
+        "---\npriority: 1\nstate: Working\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    assert select_project(table, min_idle=0)["project_name"] == "CapState"
+
+
+def test_missing_priority_defaults_to_middle(tmp_path):
+    # Omitting priority should default to the neutral middle (3), not sink to 5.
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "NoPriority",
+        "---\nstate: working\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)
+    table = merge_frontmatter(root, compute_idle_times(root))
+    assert next(r for r in table if r["project_name"] == "NoPriority")["priority"] == 3
+
+
 def test_unrecognized_state_warns_and_skips(tmp_path, capsys):
     root = tmp_path / "Projects"
     root.mkdir()

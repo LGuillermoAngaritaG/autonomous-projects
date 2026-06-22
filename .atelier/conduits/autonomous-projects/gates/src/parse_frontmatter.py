@@ -8,7 +8,9 @@ import yaml
 
 DEFAULTS: dict = {
     "location": "",
-    "priority": 5,
+    # ponytail: neutral middle of the 1-5 scale (template uses 1 = highest).
+    # A missing priority should rank mid-pack, not sink below every set one.
+    "priority": 3,
     "use_git": False,
     "state": "working",
     "max_ideas": 0,
@@ -99,6 +101,10 @@ def merge_frontmatter(projects_root: Path, table: list[dict]) -> list[dict]:
                 value = _coerce_bool(value, default)
             elif key in _FLOAT_FIELDS:
                 value = _coerce_float(value, default)
+            elif key == "state":
+                # Trim/lowercase like the bool field so `Working`/`WORKING`
+                # match `working` instead of silently vanishing the project.
+                value = str(value).strip().lower()
             row[key] = value
         if row["has_project_md"]:
             if row["state"] not in ("working", "paused"):

@@ -87,10 +87,19 @@ tasks:
       task: |
         set -euo pipefail
         mins="$(python3 -c 'print({{inputs.idle_hours}} * 60)')"
-        uv run --project {{conduit_dir}}/gates \
+        # ponytail: the picker is the one gate everything depends on, yet runs
+        # under uv. A transient uv resolve/sync hiccup must not take down the
+        # whole tick — fall back to the same all-zero block select_project emits
+        # for "nothing qualifies" so downstream gates see no work and skip.
+        out="$(uv run --project {{conduit_dir}}/gates \
           python {{conduit_dir}}/gates/main.py \
           "{{get_projects_dir.output}}/projects" \
-          --min-idle-minutes "$mins"
+          --min-idle-minutes "$mins")" || out='project_name: ""
+        ideas_left: 0
+        reviews_left: 0
+        to_do_left: 0
+        to_improve_left: 0'
+        printf '%s\n' "$out"
 
   - pick_name:
       description: Extract the bare project name from the gates block (empty when none).
