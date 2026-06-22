@@ -1,5 +1,6 @@
 """Module 2: parse project.md YAML front-matter and merge it into the table."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -80,7 +81,16 @@ def merge_frontmatter(projects_root: Path, table: list[dict]) -> list[dict]:
     :returns: the same rows, each enriched with front-matter fields.
     """
     for row in table:
-        fm = parse_frontmatter(projects_root / row["project_name"] / "project.md")
+        name = row["project_name"]
+        md_path = projects_root / name / "project.md"
+        # Distinguish "no project.md at all" from "present" so the picker can
+        # pass over a half-set-up folder instead of treating defaulted
+        # (state: working) values as a healthy project. select_project excludes
+        # on this flag — the defaults below still fill keys so reads don't KeyError.
+        row["has_project_md"] = md_path.is_file()
+        if not row["has_project_md"]:
+            print(f"warning: {name}: no project.md; skipping", file=sys.stderr)
+        fm = parse_frontmatter(md_path)
         for key, default in DEFAULTS.items():
             value = fm.get(key, default)
             if key in _INT_FIELDS:
@@ -90,4 +100,16 @@ def merge_frontmatter(projects_root: Path, table: list[dict]) -> list[dict]:
             elif key in _FLOAT_FIELDS:
                 value = _coerce_float(value, default)
             row[key] = value
+        if row["has_project_md"]:
+            if row["state"] not in ("working", "paused"):
+                print(
+                    f"warning: {name}: unrecognized state '{row['state']}'; skipping",
+                    file=sys.stderr,
+                )
+            location = row["location"]
+            if not location or not os.path.isdir(location):
+                print(
+                    f"warning: {name}: location '{location}' not found; skipping",
+                    file=sys.stderr,
+                )
     return table

@@ -17,6 +17,11 @@ def _make_project(root: Path, name: str, fm: str, files: dict[str, list[str]]):
     proj = root / name
     for stage in ("00_backlog", "00_tasks", "01_to-do", "02_in-progress", "03_to-review"):
         (proj / stage).mkdir(parents=True)
+    # select_project now requires location to point at a real dir. Give every
+    # fixture a valid one (the project folder, which exists) unless the fm
+    # already sets location explicitly (negative tests rely on that).
+    if "location:" not in fm and fm.startswith("---\n"):
+        fm = fm.replace("---\n", f"---\nlocation: {proj}\n", 1)
     (proj / "project.md").write_text(fm, encoding="utf-8")
     for stage, names in files.items():
         for fname in names:
@@ -38,7 +43,7 @@ def _build(tmp: Path) -> Path:
     # Eligible, high priority, work backlog present.
     _make_project(
         root, "Project-A",
-        "---\nlocation: /a\npriority: 1\nuse_git: true\nstate: working\n"
+        "---\npriority: 1\nuse_git: true\nstate: working\n"
         "max_ideas: 10\nmax_reviews: 5\nmax_to_do: 5\n---\n",
         {"00_backlog": ["idea_1.md", "review_1.md"], "00_tasks": ["t1.md"]},
     )
@@ -332,3 +337,52 @@ def test_stray_file_under_root_is_skipped(tmp_path, capsys):
     chosen = select_project(table, min_idle=0)
     assert chosen["project_name"] == "RealProject"
     assert ".DS_Store" in capsys.readouterr().err
+
+
+def test_skips_project_without_project_md(tmp_path, capsys):
+    # A half-set-up folder (stages + queued task, no project.md) must not be
+    # picked just because defaults fill in state: working.
+    root = tmp_path / "Projects"
+    root.mkdir()
+    proj = root / "NoSettings"
+    for stage in ("00_backlog", "00_tasks", "01_to-do", "02_in-progress", "03_to-review"):
+        (proj / stage).mkdir(parents=True)
+    (proj / "01_to-do" / "task_1.md").write_text("x", encoding="utf-8")
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    chosen = select_project(table, min_idle=0)
+    assert chosen["project_name"] == ""
+    assert "NoSettings: no project.md" in capsys.readouterr().err
+
+
+def test_skips_project_with_missing_location(tmp_path):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "BlankLoc",
+        "---\nlocation:\npriority: 1\nstate: working\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _make_project(
+        root, "DeadLoc",
+        "---\nlocation: /does/not/exist\npriority: 1\nstate: working\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    assert select_project(table, min_idle=0)["project_name"] == ""
+
+
+def test_unrecognized_state_warns_and_skips(tmp_path, capsys):
+    root = tmp_path / "Projects"
+    root.mkdir()
+    _make_project(
+        root, "Typo",
+        "---\npriority: 1\nstate: workign\nmax_ideas: 10\n---\n",
+        {"00_backlog": ["idea_1.md"]},
+    )
+    _age(root)
+    table = count_files(root, merge_frontmatter(root, compute_idle_times(root)))
+    assert select_project(table, min_idle=0)["project_name"] == ""
+    err = capsys.readouterr().err
+    assert "Typo: unrecognized state 'workign'" in err

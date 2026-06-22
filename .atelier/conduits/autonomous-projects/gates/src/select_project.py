@@ -1,5 +1,7 @@
 """Module 4: derive, filter, sort the table and emit the recommended project."""
 
+import os
+
 MIN_IDLE_MINUTES = 15
 
 _EMPTY = {
@@ -38,6 +40,9 @@ def select_project(table: list[dict], min_idle: float = MIN_IDLE_MINUTES) -> dic
         for row in table
         if row["idle_time"] >= _row_min_idle(row)
         and row["state"] == "working"
+        and row["has_project_md"]
+        and bool(row["location"])
+        and os.path.isdir(row["location"])
         and not (
             row["ideas_left"] == 0
             and row["to_do_left"] == 0
