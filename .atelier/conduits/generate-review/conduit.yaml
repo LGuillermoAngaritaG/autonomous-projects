@@ -1,26 +1,31 @@
 name: generate-review
 description: Generate a code review for a project, plan it, and store it as a review document.
 timeout: 3600
-max_concurrency: 3
+max_concurrency: 1
 
 inputs:
   project_document: Path to the project document (goal/constraints/context) the agent reads.
-  template_dir: Directory holding task_template.md (threaded from the parent conduit).
-  path_review: Target folder where the final review_<name>.md document is written.
-  bad_ideas:
-    description: Folder of rejected ideas plus the user's reasoning; avoid the same mistakes.
-    default: ""
-  tasks_dir:
-    description: >-
-      Project task directory holding to-do/, in-progress/, in-review/, done/;
-      the new review must not re-flag work already queued, being worked, or implemented.
-    default: ""
+  template_dir: "Directory holding task_template.md (threaded from the parent conduit)."
+  path_review: "Folder holding prior review_*.md documents; the new review_*.md is written here."
+  bad_ideas: "Folder of rejected-idea files the agent must read to avoid re-recommending them."
+  tasks_dir: "Project root whose 01_to-do/02_in-progress/03_to-review/04_done subfolders the agent reads for prior work."
+  target: "How many reviews the parent wants this tick (the n_reviews count)."
+  prior: "The previous iteration's counter output ({{loop.previous}}); empty on iteration 1."
 
 tasks:
+  - count:
+      description: "Gate the activity off once `target` reviews have been made this tick."
+      tool: tool:bash
+      depends_on: []
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase count --target "{{inputs.target}}" --prior "{{inputs.prior}}"
+
   - generate_review:
       description: Generate a code review for the project via the review skill.
       tool: harness:claude-code
-      depends_on: []
+      depends_on:
+        - 'count.output.not_match(remaining:\s*0)'
       retries: 2
       retry_backoff: 5
       task: |
@@ -39,8 +44,8 @@ tasks:
           Each file holds a bad idea and the user's reasoning for why it is bad.
           Do NOT recommend changes of those kinds; respect the stated reasoning.
         - Existing tasks live under this directory: {{inputs.tasks_dir}}
-          Read the .md files in its `to-do/`, `in-progress/`, `in-review/`,
-          and `done/` subfolders — their `# Description` sections describe work
+          Read the .md files in its `01_to-do/`, `02_in-progress/`, `03_to-review/`,
+          and `04_done/` subfolders — their `# Description` sections describe work
           already queued, being worked, implemented and awaiting review, or
           completed (`# What was done` records the result for finished tasks).
           Do NOT re-flag findings already covered by any of them.
@@ -108,8 +113,8 @@ tasks:
 
         1. Read the template at:
            {{inputs.template_dir}}/task_template.md
-           It has frontmatter plus the sections "# Description", "# Plan",
-           "# User comments", "# What was done", "# How was done and tested".
+           Fill the sections present in that template — it is the single source
+           of truth for the section set (not re-listed here).
 
         2. Fill the sections:
            - "# Description": ONLY the text between the "===REVIEW START===" and
@@ -121,9 +126,11 @@ tasks:
              top-level "# ..." heading if present (the template already provides
              "# Plan"). Discard everything outside the markers.
            - Frontmatter: set `priority: 2`
-           - Leave "# User comments", "# What was done", and
-             "# How was done and tested" empty, and leave the frontmatter fields
-             blank — the human and the executor fill those later.
+           - Leave "# Spec", "# User comments", "# What was done", and
+             "# How was done and tested" empty. Set `creation_datetime` to the
+             output of `date '+%Y-%m-%d %H:%M:%S %Z'`, and leave
+             `modified_datetime` and `commits` blank — the human and the
+             executor fill those later.
 
         3. Determine the slug from the "REVIEW_SLUG:" line in the review below.
 
@@ -141,3 +148,11 @@ tasks:
         ---
         {{generate_plan.output}}
         ---
+
+  - advance:
+      description: "Advance the per-tick counter (made: N) so the parent loop stops at target."
+      tool: tool:bash
+      depends_on: [store_review]
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase advance --target "{{inputs.target}}" --prior "{{inputs.prior}}"

@@ -9,6 +9,7 @@ inputs:
   template_dir: "Directory holding task_template.md, threaded through to improve-task."
   path_task: "Folder where the user drops raw task files to improve (the task inbox)."
   path_backlog: "Target folder where improved task_*.md documents are written."
+  target: {default: "20"}  # made-counter cap; keep >= repeat so the inbox-drain is the real stop
 
 tasks:
   - improve_all_tasks:
@@ -17,9 +18,11 @@ tasks:
       task: improve-task
       depends_on: []
       repeat: 20
-      until: 'output.match(task_counter:\s*0)'
+      until: 'output.match(remaining:\s*0|task_counter:\s*0)'
       inputs:
         project_document: "{{inputs.project_document}}"
         template_dir: "{{inputs.template_dir}}"
         path_task: "{{inputs.path_task}}"
         path_backlog: "{{inputs.path_backlog}}"
+        target: "{{inputs.target}}"
+        prior: "{{loop.previous}}"

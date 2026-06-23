@@ -1,12 +1,7 @@
-projects/paused/*.md
-projects/working/*.md
-tasks/*
-
 .env
 # Python-generated files
 __pycache__/
 *.py[oc]
-build/
 wheels/
 *.egg-info
 *.spec
@@ -23,5 +18,4 @@ claude.md
 .opencode
 AGENTS.md
 .agents/
-projects/
-tasks/
+.atelier/project/

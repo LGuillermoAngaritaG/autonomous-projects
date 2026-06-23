@@ -8,12 +8,39 @@ inputs:
   template_dir: "Directory holding task_template.md (threaded from the parent conduit)."
   path_task: "Folder where the user drops raw task files to improve (the task inbox)."
   path_backlog: "Target folder where the improved task_*.md documents are written."
+  target: "How many tasks the parent wants spec'd this tick (the n_improve count)."
+  prior: "The previous iteration's counter output ({{loop.previous}}); empty on iteration 1."
 
 tasks:
+  - count:
+      description: "Gate the activity off once `target` tasks have been spec'd this tick."
+      tool: tool:bash
+      depends_on: []
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase count --target "{{inputs.target}}" --prior "{{inputs.prior}}"
+
+  - pick_task:
+      description: "Deterministically select one .md file from the inbox; emit its absolute path on line 1, then the raw file contents."
+      tool: tool:bash
+      depends_on:
+        - 'count.output.not_match(remaining:\s*0)'
+      task: |
+        set -euo pipefail
+        f="$(find "{{inputs.path_task}}" -maxdepth 1 -type f -name '*.md' | sort | head -n1)"
+        if [ -z "$f" ]; then
+          printf 'NOTHING TO SPEC\n'
+          python3 "{{conduit_dir}}/../autonomous-projects/scripts/count_tasks.py" "{{inputs.path_task}}"
+          exit 0
+        fi
+        printf '%s\n' "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+        cat "$f"
+
   - improve_task:
       description: Improve a task provided by the user.
       tool: harness:claude-code
-      depends_on: []
+      depends_on:
+        - 'pick_task.output.not_match(NOTHING TO SPEC)'
       retries: 2
       retry_backoff: 5
       task: |
@@ -25,8 +52,17 @@ tasks:
 
         Then focus on the codebase at the path outlined in the project document.
 
-        Your job is to take a task from the user's task inbox at {{inputs.path_task}} 
-        and generate an improved version of it without changing its core meaning or intent.
+        Your job is to improve the raw task below without changing its core
+        meaning or intent. The block comes from {{pick_task.output}}: its FIRST
+        line is the file's path (ignore it) and everything AFTER the first line
+        is the original task text to improve.
+
+        Raw task:
+        ---
+        {{pick_task.output}}
+        ---
+
+        Generate an improved version of that task.
 
         Produce exactly ONE improved version of the task.
 
@@ -74,19 +110,25 @@ tasks:
   - store_task:
       description: Assemble the task document from the template and write it to path_backlog.
       tool: harness:claude-code
-      depends_on: [improve_task, generate_plan]
+      depends_on: [pick_task, improve_task, generate_plan]
       retries: 2
       retry_backoff: 5
       task: |
         Create one task document and write it to disk.
 
+        The original raw task is in {{pick_task.output}}: its FIRST line is the
+        absolute path of the source file in the inbox, and everything AFTER the
+        first line is the user's original task text, verbatim.
+
         1. Read the template at:
            {{inputs.template_dir}}/task_template.md
-           It has frontmatter plus the sections "# Description", "# Plan",
-           "# User comments", "# What was done", "# How was done and tested".
+           Fill the sections present in that template — it is the single source
+           of truth for the section set (not re-listed here).
 
         2. Fill the sections:
-           - "# Description": Original user task
+           - "# Description": the user's original task text, verbatim — that is
+             everything AFTER the first line of {{pick_task.output}}. Copy it as
+             written; do NOT reconstruct it from the improved spec.
            - "# Spec": ONLY the text between the "===TASK START===" and
              "===TASK END===" markers in the task below. Discard everything
              outside the markers (model narration, the markers themselves, and
@@ -97,9 +139,10 @@ tasks:
              "# Plan"). Discard everything outside the markers.
            - Leave "# User comments", "# What was done", and
              "# How was done and tested" empty.
-           - Frontmatter: set `priority: 1` (tasks are highest precedence). 
-             Leave `datetime`, `location`,
-             and `commits` blank — the human and the executor fill those later.
+           - Frontmatter: set `priority: 1` (tasks are highest precedence).
+             Set `creation_datetime` to the output of
+             `date '+%Y-%m-%d %H:%M:%S %Z'`. Leave `modified_datetime` and
+             `commits` blank — the human and the executor fill those later.
 
         3. Determine the slug from the "TASK_SLUG:" line in the task below.
 
@@ -107,7 +150,8 @@ tasks:
            Then write the filled document to:
            {{inputs.path_backlog}}/task_<slug>.md
            (literal prefix "task_" followed by the slug, e.g. task_dark-mode.md).
-           finally, delete the original task file from the inbox at {{inputs.path_task}}.
+           A later automated step removes the source inbox file — do not delete
+           it here.
 
         Task:
         ---
@@ -119,10 +163,27 @@ tasks:
         {{generate_plan.output}}
         ---
 
-  - count_remaining:
-      description: "Count .md tasks still in the inbox after this run and emit 'task_counter: N' so improve-all-tasks can stop at 0."
+  - remove_source:
+      description: "Delete the raw inbox file just spec'd, deterministically (not via the AI step), so the next pass picks a different one."
       tool: tool:bash
       depends_on: [store_task]
       task: |
         set -euo pipefail
-        uv run --no-project "{{conduit_dir}}/scripts/count_tasks.py" "{{inputs.path_task}}"
+        f="$(find "{{inputs.path_task}}" -maxdepth 1 -type f -name '*.md' | sort | head -n1)"
+        [ -n "$f" ] && rm -f "$f" || true
+
+  - advance:
+      description: "Advance the per-tick counter (made: N) so the parent loop stops at target."
+      tool: tool:bash
+      depends_on: [store_task]
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase advance --target "{{inputs.target}}" --prior "{{inputs.prior}}"
+
+  - count_inbox:
+      description: "Count .md tasks still in the inbox after this run and emit 'task_counter: N' so the parent loop also stops when the inbox drains."
+      tool: tool:bash
+      depends_on: [remove_source]
+      task: |
+        set -euo pipefail
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/count_tasks.py" "{{inputs.path_task}}"

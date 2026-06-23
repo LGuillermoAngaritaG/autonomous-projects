@@ -1,0 +1,159 @@
+name: work-one-todo
+description: >
+  Advance ONE to-do task to completion: loop task-with-review until the
+  reviewer returns VERDICT: DONE (or the retry cap is hit). A per-tick counter
+  (made: N) lets a parent loop advance up to n_todo tasks; task_counter: N (the
+  .md files still in 01_to-do) stops it earlier when the queue drains —
+  whichever cap is smaller wins.
+
+timeout: 7200
+max_concurrency: 1
+
+inputs:
+  project_document: "Path to the project's project.md (read-only, owned by the human)."
+  project_dir: "Path to the project folder holding the numbered stage subfolders."
+  project_root: "Path to the target repo (the codebase) the worker edits."
+  target: "How many to-do tasks the parent wants advanced this tick (the n_todo count)."
+  prior: "The previous iteration's counter output ({{loop.previous}}); empty on iteration 1."
+
+tasks:
+  - count:
+      description: "Gate the activity off once `target` tasks have been advanced this tick."
+      tool: tool:bash
+      depends_on: []
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase count --target "{{inputs.target}}" --prior "{{inputs.prior}}"
+
+  - pick:
+      description: "Emit the highest-priority to-do filename (priority asc, name asc)."
+      tool: tool:bash
+      depends_on:
+        - 'count.output.not_match(remaining:\s*0)'
+      task: |
+        python3 "{{conduit_dir}}/scripts/pick_next_task.py" "{{inputs.project_dir}}"
+
+  - advance:
+      description: Advance the highest-priority to-do task, looping until a DONE verdict.
+      tool: tool:conduit
+      task: task-with-review
+      depends_on: [pick]
+      repeat: 10
+      until: 'output.match(VERDICT:\s*DONE|^\s*NOTHING TO DO)'
+      inputs:
+        task: |
+          You are advancing an autonomous project tracked in a folder-structured project directory.
+
+          Reviewer feedback from your previous attempt this run (empty on the
+          first iteration):
+          {{loop.previous}}
+
+          If that feedback is a NOT_DONE verdict, treat its REASON as the
+          priority signal — address what the reviewer flagged before doing
+          anything else.
+
+          The project markdown file is at: {{inputs.project_document}}
+          The project's stage folders are under: {{inputs.project_dir}}/
+
+          Do the following:
+          1. Claim the task FIRST — this is your very first action, before reading
+             project.md or anything else, so the board shows the task in progress right away:
+             - If 02_in-progress/ already has a .md file, that is your task: resume it
+               (leave it in place) and continue.
+             - Otherwise work on this exact to-do file, already chosen by priority (lowest
+               `priority` number first, ties by filename ascending): `{{pick.output}}`.
+               Move it from 01_to-do/ to 02_in-progress/ immediately, before any other step.
+             - If `{{pick.output}}` is empty AND 02_in-progress/ is also empty, output
+               `NOTHING TO DO` as the sole first line of your response (nothing
+               before it) and stop.
+             Do NOT propose or create new tasks — only existing 01_to-do/02_in-progress
+             tasks are executed.
+          2. Read the project markdown file. Parse the YAML frontmatter
+             (test_command), the `# Goal` section, and the `# Constraints` section if
+             present. Treat this file as READ-ONLY: it is owned by the human. Never edit it.
+             The constraints are binding — every task you execute must respect them. If a
+             constraint blocks the obvious next step or names a decision only the human can
+             make, do not work around it: record the conflict in the task's
+             `# How was done and tested`.
+          3. For memory of what has already happened, skim the task files in `04_done/` and
+             `03_to-review/` — their `# Description` and `# How was done and tested` sections
+             record past work. Use them to avoid repeating work already completed or awaiting review.
+          4. Read the task file now in 02_in-progress/. The `# Description` section tells you what to do.
+          5. cd into {{inputs.project_root}} (the codebase to edit).
+          6. Do the work. Detect whether the codebase uses git — run
+             `git -C {{inputs.project_root}} rev-parse --is-inside-work-tree`:
+             - if it is NOT a git repo, just edit files — make no commits.
+             - if it IS a git repo, commit with a clear message, but stage ONLY the
+               files this task touched (the source files you edited plus any new files
+               this task created) by explicit path: `git add <path> …`. Never `git add -A`,
+               `git add .`, or `git commit -a` — the project folder also holds
+               unrelated backlog proposals dropped this same tick and possibly the
+               human's own uncommitted edits, and a grab-all would scoop those into
+               your commit.
+          7. Validation gate (mandatory before moving the task): run the project's FULL
+             automated test suite, not only the tests you added. Determine the command:
+             - If the frontmatter `test_command` is set, run exactly that (e.g. `uv run pytest`
+               or `npm test`).
+             - If `test_command` is empty/absent, look for the project's conventional suite
+               (package.json scripts, Cargo, Makefile, pytest, etc.) and run that.
+             - If the project genuinely has NO automated tests, do NOT improvise a pass: write
+               that plainly in `# How was done and tested` (e.g. "No automated test suite
+               present; verified by <what you actually did>"). "Couldn't verify" must be stated,
+               never hidden behind a claimed green check.
+             Record the exact pass/fail counts in `# How was done and tested`. When a suite
+             exists it MUST be green before you move the task. If it is red, fix the regression
+             or revert your change — never move a task that leaves tests failing. Do NOT dismiss
+             failures as "pre-existing" unless you have proven it against the committed baseline:
+             `git stash` does NOT revert committed code, so it cannot establish a baseline. To
+             check, compare against HEAD before your own commits (e.g. `git stash` is invalid
+             here; use `git checkout <pre-work-commit> -- . ` in a scratch worktree, or run
+             the suite on a clean clone) — when unsure, assume the failure is yours.
+          8. When finished, update the task file: fill in the frontmatter (`modified_datetime`
+             — the completion date AND time, e.g. the output of
+             `date '+%Y-%m-%d %H:%M:%S %Z'`; `commits`) and the
+             `# How was done and tested` section describing how you verified
+             the work. Do NOT overwrite `creation_datetime` — leave it as the store step set it.
+             When the codebase is a git repo, record the SHA(s) of your step-6 commit(s) in
+             `commits`, then commit this task-card update on its own — `git add` the
+             task `.md` by explicit path only (never `-A`/`.`/`commit -a`), so the
+             card edit isn't left uncommitted now that grab-all is forbidden.
+             Leave the task file in 02_in-progress/ — do NOT move it yourself.
+             Filling in the frontmatter and `# How was done and tested` is how you
+             signal you believe the work is complete; an automated step promotes
+             the card to 03_to-review/ only after the independent reviewer returns
+             VERDICT: DONE. Never move tasks to 03_to-review/ or 04_done/.
+
+  - promote:
+      description: On a DONE verdict, move the in-progress card to 03_to-review/ for the human.
+      tool: tool:bash
+      depends_on:
+        - 'advance.output.match(VERDICT:\s*DONE)'
+      task: |
+        python3 "{{conduit_dir}}/scripts/promote_reviewed.py" "{{inputs.project_dir}}"
+
+  - block_stranded:
+      description: >
+        Only when the loop ended WITHOUT a DONE verdict (retry cap hit, or the
+        run was cut off), a .md is still in 02_in-progress/. Move it to
+        05_blocked/ with a "needs a human" note instead of leaving it silently
+        retried (and the picker re-eligible) every tick.
+      tool: tool:bash
+      depends_on:
+        - 'advance.output.not_match(VERDICT:\s*DONE)'
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/block_stranded.py" "{{inputs.project_dir}}"
+
+  - bump:
+      description: "Advance the per-tick counter (made: N) so the parent loop stops at target."
+      tool: tool:bash
+      depends_on: [advance]
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase advance --target "{{inputs.target}}" --prior "{{inputs.prior}}"
+
+  - count_todo:
+      description: "Emit 'task_counter: N' (.md files still in 01_to-do) so the parent loop also stops when the queue drains."
+      tool: tool:bash
+      depends_on: [advance]
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/count_tasks.py" "{{inputs.project_dir}}/01_to-do"
