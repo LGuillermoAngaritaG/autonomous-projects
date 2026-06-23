@@ -1,7 +1,5 @@
 """Runnable check for pick_next_task: priority asc, filename tie-break, blank=last.
 
-Works under pytest AND as a plain script (`python3 test_pick_next_task.py`),
-since work-one-todo has no pytest project of its own.
 ponytail: parse + sort + missing-value branch is non-trivial -> one check.
 """
 
@@ -11,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "work-one-todo" / "scripts"))
 from pick_next_task import pick_next_task  # noqa: E402
 
 

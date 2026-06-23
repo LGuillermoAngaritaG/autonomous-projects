@@ -9,147 +9,150 @@ inputs:
   path_review: "Folder holding prior review_*.md documents; the new review_*.md is written here."
   bad_ideas: "Folder of rejected-idea files the agent must read to avoid re-recommending them."
   tasks_dir: "Project root whose 01_to-do/02_in-progress/03_to-review/04_done subfolders the agent reads for prior work."
-  harness_ideation: {default: "cc"}
+  target: "How many reviews the parent wants this tick (the n_reviews count)."
+  prior: "The previous iteration's counter output ({{loop.previous}}); empty on iteration 1."
 
 tasks:
+  - count:
+      description: "Gate the activity off once `target` reviews have been made this tick."
+      tool: tool:bash
+      depends_on: []
+      task: |
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase count --target "{{inputs.target}}" --prior "{{inputs.prior}}"
+
   - generate_review:
       description: Generate a code review for the project via the review skill.
-      tool: tool:conduit
-      task: "run-{{inputs.harness_ideation}}"
-      depends_on: []
+      tool: harness:claude-code
+      depends_on:
+        - 'count.output.not_match(remaining:\s*0)'
       retries: 2
       retry_backoff: 5
-      inputs:
-        prompt: |
-          /review
+      task: |
+        /review
 
-          Read this project document first to understand the project's goal and
-          constraints, and ground your review in it: {{inputs.project_document}}
+        Read this project document first to understand the project's goal and
+        constraints, and ground your review in it: {{inputs.project_document}}
 
-          Then focus on the codebase at the path outlined in the project document
+        Then focus on the codebase at the path outlined in the project document
 
-          Before reviewing, read prior context so you don't repeat work:
-          - Existing reviews live in this folder: {{inputs.path_review}}
-            Read the review_*.md files there. Your new review MUST cover different
-            ground, not restate findings already captured.
-          - Rejected ideas live in this folder: {{inputs.bad_ideas}}
-            Each file holds a bad idea and the user's reasoning for why it is bad.
-            Do NOT recommend changes of those kinds; respect the stated reasoning.
-          - Existing tasks live under this directory: {{inputs.tasks_dir}}
-            Read the .md files in its `01_to-do/`, `02_in-progress/`, `03_to-review/`,
-            and `04_done/` subfolders — their `# Description` sections describe work
-            already queued, being worked, implemented and awaiting review, or
-            completed (`# What was done` records the result for finished tasks).
-            Do NOT re-flag findings already covered by any of them.
-          If a path is empty or the folder does not exist, treat it as "no prior
-          context" and continue.
+        Before reviewing, read prior context so you don't repeat work:
+        - Existing reviews live in this folder: {{inputs.path_review}}
+          Read the review_*.md files there. Your new review MUST cover different
+          ground, not restate findings already captured.
+        - Rejected ideas live in this folder: {{inputs.bad_ideas}}
+          Each file holds a bad idea and the user's reasoning for why it is bad.
+          Do NOT recommend changes of those kinds; respect the stated reasoning.
+        - Existing tasks live under this directory: {{inputs.tasks_dir}}
+          Read the .md files in its `01_to-do/`, `02_in-progress/`, `03_to-review/`,
+          and `04_done/` subfolders — their `# Description` sections describe work
+          already queued, being worked, implemented and awaiting review, or
+          completed (`# What was done` records the result for finished tasks).
+          Do NOT re-flag findings already covered by any of them.
+        If a path is empty or the folder does not exist, treat it as "no prior
+        context" and continue.
 
-          Produce a single code review with severity-labeled findings and
-          file:line references across correctness, readability, architecture,
-          security, and performance.
+        Produce a single code review with severity-labeled findings and
+        file:line references across correctness, readability, architecture,
+        security, and performance.
 
-          Keep the severity labels and file:line references, but explain each
-          finding in plain, accessible language: say what is wrong and why it
-          matters in everyday terms. Avoid unnecessary jargon in the review text —
-          reserve technical depth for the plan, not the description.
+        Keep the severity labels and file:line references, but explain each
+        finding in plain, accessible language: say what is wrong and why it
+        matters in everyday terms. Avoid unnecessary jargon in the review text —
+        reserve technical depth for the plan, not the description.
 
-          Output format (strict):
-          - Do all exploration and reasoning first; NONE of that narration may
-            appear in the final review.
-          - Emit the review between the two marker lines below, on their own lines,
-            with ONLY the review text in between (no preamble, no tool commentary,
-            no closing remarks). Do not put a top-level "# ..." heading inside; use
-            "##" for any section headings:
-            ===REVIEW START===
-            ===REVIEW END===
-          - After the END marker, output one final line naming the review
-            (lowercase, kebab-case, no spaces):
-            REVIEW_SLUG: <kebab-case-name>
+        Output format (strict):
+        - Do all exploration and reasoning first; NONE of that narration may
+          appear in the final review.
+        - Emit the review between the two marker lines below, on their own lines,
+          with ONLY the review text in between (no preamble, no tool commentary,
+          no closing remarks). Do not put a top-level "# ..." heading inside; use
+          "##" for any section headings:
+          ===REVIEW START===
+          ===REVIEW END===
+        - After the END marker, output one final line naming the review
+          (lowercase, kebab-case, no spaces):
+          REVIEW_SLUG: <kebab-case-name>
 
   - generate_plan:
       description: Produce a plan for the generated review, inline only.
-      tool: tool:conduit
-      task: "run-{{inputs.harness_ideation}}"
+      tool: harness:claude-code
       depends_on: [generate_review]
       retries: 2
       retry_backoff: 5
-      inputs:
-        prompt: |
-          /plan
+      task: |
+        /plan
 
-          Create a plan to address the following review (use only the text between
-          the "===REVIEW START===" / "===REVIEW END===" markers; ignore everything
-          else):
+        Create a plan to address the following review (use only the text between
+        the "===REVIEW START===" / "===REVIEW END===" markers; ignore everything
+        else):
 
-          ---
-          {{generate_review.output}}
-          ---
+        ---
+        {{generate_review.output}}
+        ---
 
-          IMPORTANT: Output the full plan inline in your response only. Do NOT write
-          the plan to any file on disk.
+        IMPORTANT: Output the full plan inline in your response only. Do NOT write
+        the plan to any file on disk.
 
-          Output format (strict):
-          - Do all reasoning first; NONE of that narration may appear in the plan.
-          - Emit the plan between the two marker lines below, with ONLY the plan in
-            between (no preamble, no narration). Do not put a top-level "# Plan"
-            heading inside; use "##" for any section headings:
-            ===PLAN START===
-            ===PLAN END===
+        Output format (strict):
+        - Do all reasoning first; NONE of that narration may appear in the plan.
+        - Emit the plan between the two marker lines below, with ONLY the plan in
+          between (no preamble, no narration). Do not put a top-level "# Plan"
+          heading inside; use "##" for any section headings:
+          ===PLAN START===
+          ===PLAN END===
 
   - store_review:
       description: Assemble the review document from the template and write it to path_review.
-      tool: tool:conduit
-      task: "run-{{inputs.harness_ideation}}"
+      tool: harness:claude-code
       depends_on: [generate_review, generate_plan]
       retries: 2
       retry_backoff: 5
-      inputs:
-        prompt: |
-          Create one review document and write it to disk.
+      task: |
+        Create one review document and write it to disk.
 
-          1. Read the template at:
-             {{inputs.template_dir}}/task_template.md
-             It has frontmatter plus the sections "# Description", "# Plan",
-             "# User comments", "# What was done", "# How was done and tested".
+        1. Read the template at:
+           {{inputs.template_dir}}/task_template.md
+           Fill the sections present in that template — it is the single source
+           of truth for the section set (not re-listed here).
 
-          2. Fill the sections:
-             - "# Description": ONLY the text between the "===REVIEW START===" and
-               "===REVIEW END===" markers in the review below. Discard everything
-               outside the markers (model narration, the markers themselves, and
-               the REVIEW_SLUG line).
-             - "# Plan": ONLY the text between the "===PLAN START===" and
-               "===PLAN END===" markers in the plan below. Strip a leading
-               top-level "# ..." heading if present (the template already provides
-               "# Plan"). Discard everything outside the markers.
-             - Frontmatter: set `priority: 2`
-             - Leave "# User comments", "# What was done", and
-               "# How was done and tested" empty, and leave the frontmatter fields
-               blank — the human and the executor fill those later.
+        2. Fill the sections:
+           - "# Description": ONLY the text between the "===REVIEW START===" and
+             "===REVIEW END===" markers in the review below. Discard everything
+             outside the markers (model narration, the markers themselves, and
+             the REVIEW_SLUG line).
+           - "# Plan": ONLY the text between the "===PLAN START===" and
+             "===PLAN END===" markers in the plan below. Strip a leading
+             top-level "# ..." heading if present (the template already provides
+             "# Plan"). Discard everything outside the markers.
+           - Frontmatter: set `priority: 2`
+           - Leave "# Spec", "# User comments", "# What was done", and
+             "# How was done and tested" empty. Set `creation_datetime` to the
+             output of `date '+%Y-%m-%d %H:%M:%S %Z'`, and leave
+             `modified_datetime` and `commits` blank — the human and the
+             executor fill those later.
 
-          3. Determine the slug from the "REVIEW_SLUG:" line in the review below.
+        3. Determine the slug from the "REVIEW_SLUG:" line in the review below.
 
-          4. Run: mkdir -p "{{inputs.path_review}}"
-             Then write the filled document to:
-             {{inputs.path_review}}/review_<slug>.md
-             (literal prefix "review_" followed by the slug, e.g. review_auth-module.md).
+        4. Run: mkdir -p "{{inputs.path_review}}"
+           Then write the filled document to:
+           {{inputs.path_review}}/review_<slug>.md
+           (literal prefix "review_" followed by the slug, e.g. review_auth-module.md).
 
-          Review:
-          ---
-          {{generate_review.output}}
-          ---
+        Review:
+        ---
+        {{generate_review.output}}
+        ---
 
-          Plan:
-          ---
-          {{generate_plan.output}}
-          ---
+        Plan:
+        ---
+        {{generate_plan.output}}
+        ---
 
-  - count_remaining:
-      description: "Emit 'remaining: N' (max_reviews - review_*.md count) so a parent loop stops at the cap."
+  - advance:
+      description: "Advance the per-tick counter (made: N) so the parent loop stops at target."
       tool: tool:bash
       depends_on: [store_review]
       task: |
-        uv run --no-project "{{conduit_dir}}/scripts/count_remaining.py" \
-          --doc "{{inputs.project_document}}" \
-          --folder "{{inputs.path_review}}" \
-          --cap-key max_reviews \
-          --prefix review_
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/loop_count.py" \
+          --phase advance --target "{{inputs.target}}" --prior "{{inputs.prior}}"

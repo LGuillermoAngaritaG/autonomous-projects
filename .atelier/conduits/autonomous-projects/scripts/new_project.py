@@ -1,24 +1,21 @@
 """One-command project scaffolder.
 
 Usage:
-    uv run python new_project.py <name> --location <path>
+    uv run python new_project.py --repo <path>
 
-Creates projects/<name>/ with project.md (from the template, location: rewritten)
-and all 7 stage folders. Atomic: builds in a temp dir, renames on success.
+Creates <repo>/.atelier/project/ with project.md (from the template) and all
+stage folders. Atomic: builds in a temp dir, renames on success.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import re
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 
-
-SLUG_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 STAGE_FOLDERS = [
     "00_abandoned",
@@ -31,62 +28,36 @@ STAGE_FOLDERS = [
 ]
 
 
-def validate_slug(name: str) -> bool:
-    """Return True iff *name* is valid lowercase kebab-case."""
-    return bool(SLUG_RE.fullmatch(name))
-
-
-def create_project(
-    name: str,
-    location: str,
-    projects_root: Path,
-    template_path: Path,
-) -> Path:
-    """Create a new project under *projects_root*.
+def create_project(repo: Path, template_path: Path) -> Path:
+    """Create <repo>/.atelier/project/ with stage folders and a project.md.
 
     Validates inputs first, then builds atomically in a temp dir.
 
-    Returns the created project path.
+    Returns the created .atelier/project path.
 
     Raises:
-        ValueError: invalid slug.
-        FileExistsError: project directory already exists.
-        OSError: *location* is not a writable directory, or template/projects_root
-            is missing.
+        FileExistsError: <repo>/.atelier/project already exists.
+        OSError: *repo* is not a writable directory, or the template is missing.
     """
-    if not validate_slug(name):
-        raise ValueError(
-            f"Invalid project name {name!r}: must be lowercase kebab-case "
-            "(letters, digits, hyphens only; no leading/trailing hyphens)."
-        )
-
-    target = projects_root / name
-    if target.exists():
-        raise FileExistsError(f"Project {name!r} already exists at {target}.")
-
-    loc = Path(location)
-    if not loc.exists() or not os.access(str(loc), os.W_OK):
-        raise OSError(
-            f"--location {location!r} does not exist or is not writable."
-        )
+    if not repo.is_dir() or not os.access(str(repo), os.W_OK):
+        raise OSError(f"--repo {str(repo)!r} is not an existing writable directory.")
 
     if not template_path.exists():
         raise OSError(f"Template not found at {template_path}.")
 
-    projects_root.mkdir(parents=True, exist_ok=True)
+    target = repo / ".atelier" / "project"
+    if target.exists():
+        raise FileExistsError(f"Project already exists at {target}.")
 
-    tmp_dir = Path(tempfile.mkdtemp(dir=projects_root))
+    target.parent.mkdir(parents=True, exist_ok=True)  # <repo>/.atelier
+
+    tmp_dir = Path(tempfile.mkdtemp(dir=target.parent))
     try:
         for folder in STAGE_FOLDERS:
             (tmp_dir / folder).mkdir(parents=True)
-
-        tmpl = template_path.read_text(encoding="utf-8")
-        project_md = re.sub(
-            r"^location:.*", f"location: {location}", tmpl, count=1,
-            flags=re.MULTILINE,
+        (tmp_dir / "project.md").write_text(
+            template_path.read_text(encoding="utf-8"), encoding="utf-8"
         )
-        (tmp_dir / "project.md").write_text(project_md, encoding="utf-8")
-
         os.rename(str(tmp_dir), str(target))
     except BaseException:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -97,27 +68,25 @@ def create_project(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Scaffold a new autonomous project."
+        description="Scaffold .atelier/project/ inside a target repo."
     )
-    parser.add_argument("name", help="Project name (lowercase kebab-case)")
     parser.add_argument(
-        "--location",
+        "--repo",
         required=True,
-        help="Path to the codebase the project will work on (must exist, writable)",
+        help="Path to the target repo (must exist, writable); .atelier/project/ goes here",
     )
     args = parser.parse_args(argv)
 
     script_dir = Path(__file__).resolve().parent
     template_path = script_dir.parent / "references" / "project_template.md"
-    projects_root = Path.cwd() / "projects"
 
     try:
-        path = create_project(args.name, args.location, projects_root, template_path)
-    except (ValueError, FileExistsError, OSError) as exc:
+        path = create_project(Path(args.repo), template_path)
+    except (FileExistsError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    print(f"Created project {args.name!r} at {path}")
+    print(f"Created project at {path}")
     return 0
 
 

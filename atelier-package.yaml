@@ -7,8 +7,11 @@ conduits:
   - task-with-review
   - improve-task
   - improve-all-tasks
+  - work-one-todo
+  - scaffold-project
 skills:
   - idea
   - planning
   - review
   - spec
+  - build

@@ -1,46 +1,29 @@
 name: autonomous-projects
 description: >
-  Pick the highest-priority idle project from this conduit's own project
-  folders and advance it. Projects live in projects/<name>/ with a project.md
-  (YAML frontmatter, state: working|paused) and numbered stage folders
-  (00_backlog, 00_tasks, 01_to-do, 02_in-progress, 03_to-review, 04_done;
-  05_blocked holds tasks the review loop gave up on, awaiting a human).
-  The gates picker reports how much work each bucket has left; each branch
-  runs only while its bucket is non-empty and the harness is under its usage
-  ceiling. If no project is eligible, every bucket reads 0 and the tick
-  short-circuits.
+  Advance the single project living in a target repo's .atelier/project/ folder.
+  Point the conduit at the repo via the project_root input; the codebase workers
+  edit is that same repo. The project has a project.md (YAML frontmatter) and
+  numbered stage folders (00_backlog, 00_tasks, 00_abandoned holds rejected
+  ideas, 01_to-do, 02_in-progress, 03_to-review, 04_done; 05_blocked holds
+  tasks the review loop gave up on, awaiting a human). You say how many of each activity to
+  run this tick (n_ideas/n_reviews/n_improve/n_todo); the only gate is a usage
+  ceiling (max_usage) read from each activity's harness. An activity is skipped
+  when its n_* is 0 or its harness is at/over max_usage.
 
 timeout: 7200
-max_concurrency: 3
+max_concurrency: 1
 
 inputs:
-  max_usage_cc: {default: "80"}
-  max_usage_codex: {default: "95"}
-  max_usage_opencode: {default: "85"}
-  idle_hours: {default: "0.1"}
-  harness_ideation: {default: "cc"}
-  harness_development: {default: "opencode"}
-  harness_review: {default: "codex"}
-  # Automation on/off switches. The `flags` task echoes these so each branch's
-  # depends_on can gate on them (idea/review/task). improve_task has no switch.
-  automatic_to_do_task: {default: "true"}
-  automatic_to_do_review: {default: "false"}
-  automatic_to_do_idea: {default: "false"}
-  # ── Per-tick cap mirror ──────────────────────────────────────────────
-  # The engine honors only the literal `repeat:` on each conduit task.
-  # To change a cap, edit the task's `repeat:` line (marked with the tag
-  # "per-tick cap (authoritative)"), then update both mirrors below AND
-  # config.yaml max_per_tick to the same number. The engine ignores these
-  # inputs — they exist as the human-facing record only.
-  # Name map: conduit task `work_task` ↔ key `to_do`.
-  max_per_tick_improve_task: {default: "15"}
-  max_per_tick_generate_review: {default: "15"}
-  max_per_tick_generate_idea: {default: "20"}
-  max_per_tick_to_do: {default: "15"}
+  project_root: "Absolute path to the target repo holding .atelier/project/ (required); the codebase workers edit."
+  n_ideas: {default: "0"}      # ideas to generate this tick (0 = skip)
+  n_reviews: {default: "0"}    # reviews to generate this tick
+  n_improve: {default: "0"}    # raw tasks to spec from 00_tasks/ this tick
+  n_todo: {default: "0"}       # to-do tasks to advance this tick
+  max_usage: {default: "80"}   # usage ceiling %; an activity is skipped if its harness is at/over this
 
 tasks:
   - dep_guard:
-      description: Fail fast if uv or a configured harness CLI is missing from PATH.
+      description: Fail fast if uv, the claude CLI, or python3 is missing from PATH.
       tool: tool:bash
       depends_on: []
       task: |
@@ -48,195 +31,117 @@ tasks:
         missing=()
         command -v uv >/dev/null 2>&1 \
           || missing+=("uv — install: curl -LsSf https://astral.sh/uv/install.sh | sh")
-        for h in "{{inputs.harness_ideation}}" "{{inputs.harness_development}}" "{{inputs.harness_review}}"; do
-          case "$h" in
-            cc)       bin=claude ;;
-            codex)    bin=codex ;;
-            opencode) bin=opencode ;;
-            *)        bin="$h" ;;
-          esac
-          command -v "$bin" >/dev/null 2>&1 \
-            || missing+=("$bin (harness '$h') — must be on PATH")
-        done
+        command -v claude >/dev/null 2>&1 \
+          || missing+=("claude (harness:claude-code) — must be on PATH")
+        command -v python3 >/dev/null 2>&1 \
+          || missing+=("python3 — must be on PATH (runs usage checks + per-tick counters)")
         if ((${#missing[@]})); then
           printf 'missing dependency: %s\n' "${missing[@]}" | sort -u >&2
           exit 1
         fi
         printf 'deps ok\n'
 
-  - get_projects_dir:
-      description: Ensure the run directory's projects/ folder exists and emit its path.
+  - counts:
+      description: "Echo the per-tick counts so each branch can gate on n_* > 0 (depends_on can't read inputs directly)."
       tool: tool:bash
       depends_on: [dep_guard]
       task: |
-        set -euo pipefail
-        mkdir -p projects
-        if [ -z "$(find projects -mindepth 1 -maxdepth 1 -type d -print -quit)" ]; then
-          abs="$(pwd -P)"
-          {
-            printf 'Workspace ready: %s\n' "$abs"
-            printf 'No projects yet, so this tick will do nothing.\n'
-            printf 'Add one:  python3 %s/scripts/new_project.py <name>\n' "{{conduit_dir}}"
-            printf '(see the README "Scaffold a project" / Quickstart), then run again.\n'
-          } >&2
-        fi
-        printf '%s' "$(pwd -P)"
+        printf 'n_ideas: %s\nn_reviews: %s\nn_improve: %s\nn_todo: %s\n' \
+          "{{inputs.n_ideas}}" "{{inputs.n_reviews}}" "{{inputs.n_improve}}" "{{inputs.n_todo}}"
 
-  - pick:
-      description: Pick the project and report per-bucket work left (gates).
+  - usage_ideas:
+      description: "ok: true if generate-idea's harness is under max_usage (fail-open)."
       tool: tool:bash
-      depends_on: [get_projects_dir]
+      depends_on: ['counts.output.match(n_ideas:\s*[1-9])']
       task: |
-        set -euo pipefail
-        # idle_hours -> minutes via a guard that defaults+warns on blank/bad
-        # input instead of crashing the pick step (and the whole tick). Passing
-        # the value as argv (not spliced into -c source) also kills the inject footgun.
-        mins="$(python3 {{conduit_dir}}/scripts/idle_minutes.py "{{inputs.idle_hours}}")"
-        # ponytail: the picker is the one gate everything depends on, yet runs
-        # under uv. A transient uv resolve/sync hiccup must not take down the
-        # whole tick — fall back to the same all-zero block select_project emits
-        # for "nothing qualifies" so downstream gates see no work and skip.
-        out="$(uv run --project {{conduit_dir}}/gates \
-          python {{conduit_dir}}/gates/main.py \
-          "{{get_projects_dir.output}}/projects" \
-          --min-idle-minutes "$mins")" || out='project_name: ""
-        ideas_left: 0
-        reviews_left: 0
-        to_do_left: 0
-        to_improve_left: 0'
-        printf '%s\n' "$out"
+        python3 {{conduit_dir}}/scripts/usage_check.py --conduit generate-idea --max-usage "{{inputs.max_usage}}"
 
-  - pick_name:
-      description: Extract the bare project name from the gates block (empty when none).
+  - usage_reviews:
+      description: "ok: true if generate-review's harness is under max_usage (fail-open)."
       tool: tool:bash
-      depends_on: [pick]
+      depends_on: ['counts.output.match(n_reviews:\s*[1-9])']
       task: |
-        set -euo pipefail
-        # ponytail: single-quoting the block is safe (gates names never contain ').
-        # Wrap in $(...) to strip the trailing newline sed's `p` emits — otherwise
-        # the name carries a \n that corrupts every downstream path built from this
-        # task's output (awk/find then fail on the broken path, killing the tick).
-        printf '%s' "$(printf '%s' '{{pick.output}}' \
-          | sed -n 's/^project_name: "\(.*\)"$/\1/p')"
+        python3 {{conduit_dir}}/scripts/usage_check.py --conduit generate-review --max-usage "{{inputs.max_usage}}"
 
-  - validate_config:
-      description: Warn-only sanity check of config.yaml and run inputs (never blocks).
+  - usage_improve:
+      description: "ok: true if improve-task's harness is under max_usage (fail-open)."
       tool: tool:bash
-      depends_on: [get_projects_dir]
+      depends_on: ['counts.output.match(n_improve:\s*[1-9])']
       task: |
-        set -euo pipefail
-        python3 {{conduit_dir}}/scripts/validate_config.py \
-          --config-path "{{conduit_dir}}/config.yaml" \
-          --max-usage-cc "{{inputs.max_usage_cc}}" \
-          --max-usage-codex "{{inputs.max_usage_codex}}" \
-          --max-usage-opencode "{{inputs.max_usage_opencode}}" \
-          --idle-hours "{{inputs.idle_hours}}" \
-          --harness-ideation "{{inputs.harness_ideation}}" \
-          --harness-development "{{inputs.harness_development}}" \
-          --harness-review "{{inputs.harness_review}}" \
-          --automatic-to-do-task "{{inputs.automatic_to_do_task}}" \
-          --automatic-to-do-review "{{inputs.automatic_to_do_review}}" \
-          --automatic-to-do-idea "{{inputs.automatic_to_do_idea}}" \
-          --max-per-tick-improve-task "{{inputs.max_per_tick_improve_task}}" \
-          --max-per-tick-generate-review "{{inputs.max_per_tick_generate_review}}" \
-          --max-per-tick-generate-idea "{{inputs.max_per_tick_generate_idea}}" \
-          --max-per-tick-to-do "{{inputs.max_per_tick_to_do}}"
+        python3 {{conduit_dir}}/scripts/usage_check.py --conduit improve-task --max-usage "{{inputs.max_usage}}"
 
-  - usage_gate:
-      description: Emit per-role usage-throttle flags (ideation/development/review _ok).
+  - usage_todo:
+      description: "ok: true if work-one-todo's harness is under max_usage (fail-open)."
       tool: tool:bash
-      depends_on: [pick_name]
+      depends_on: ['counts.output.match(n_todo:\s*[1-9])']
       task: |
-        set -euo pipefail
-        python3 {{conduit_dir}}/scripts/usage_gate.py \
-          --max-usage-cc "{{inputs.max_usage_cc}}" \
-          --max-usage-codex "{{inputs.max_usage_codex}}" \
-          --max-usage-opencode "{{inputs.max_usage_opencode}}" \
-          --harness-ideation "{{inputs.harness_ideation}}" \
-          --harness-development "{{inputs.harness_development}}" \
-          --harness-review "{{inputs.harness_review}}" \
-          --project-md "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
+        python3 {{conduit_dir}}/scripts/usage_check.py --conduit work-one-todo --max-usage "{{inputs.max_usage}}"
 
-  - flags:
-      description: Echo the automation on/off switches so branches can gate on them.
-      tool: tool:bash
-      depends_on: [get_projects_dir]
-      task: |
-        set -euo pipefail
-        printf 'idea_enabled: %s\nreview_enabled: %s\ntask_enabled: %s\n' \
-          "{{inputs.automatic_to_do_idea}}" \
-          "{{inputs.automatic_to_do_review}}" \
-          "{{inputs.automatic_to_do_task}}"
-
-  - generate_idea:
-      description: Generate one idea into the project's 00_backlog/ folder.
+  - generate_ideas:
+      description: Generate up to n_ideas ideas into the project's 00_backlog/ folder.
       tool: tool:conduit
       task: generate-idea
       depends_on:
-        - pick_name
-        - "pick.output.match(ideas_left: [1-9])"
-        - "usage_gate.output.match(ideation_ok: true)"
-        - "flags.output.match(idea_enabled: true)"
-      repeat: 20  # per-tick cap (authoritative); mirror in config.yaml + inputs
+        - 'counts.output.match(n_ideas:\s*[1-9])'
+        - 'usage_ideas.output.match(ok:\s*true)'
+      repeat: 50  # literal safety ceiling; the sub-conduit's counter stops at n_ideas
       until: 'output.match(remaining:\s*0)'
       inputs:
-        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
+        target: "{{inputs.n_ideas}}"
+        prior: "{{loop.previous}}"
+        project_document: "{{inputs.project_root}}/.atelier/project/project.md"
         template_dir: "{{conduit_dir}}/references"
-        path_idea: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
-        bad_ideas: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_abandoned"
-        tasks_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
-        harness_ideation: "{{inputs.harness_ideation}}"
+        path_idea: "{{inputs.project_root}}/.atelier/project/00_backlog"
+        bad_ideas: "{{inputs.project_root}}/.atelier/project/00_abandoned"
+        tasks_dir: "{{inputs.project_root}}/.atelier/project"
 
-  - generate_review:
-      description: Generate one review into the project's 00_backlog/ folder.
+  - generate_reviews:
+      description: Generate up to n_reviews reviews into the project's 00_backlog/ folder.
       tool: tool:conduit
       task: generate-review
       depends_on:
-        - pick_name
-        - "pick.output.match(reviews_left: [1-9])"
-        - "usage_gate.output.match(ideation_ok: true)"
-        - "flags.output.match(review_enabled: true)"
-      repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
+        - 'counts.output.match(n_reviews:\s*[1-9])'
+        - 'usage_reviews.output.match(ok:\s*true)'
+      repeat: 50  # literal safety ceiling; the sub-conduit's counter stops at n_reviews
       until: 'output.match(remaining:\s*0)'
       inputs:
-        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
+        target: "{{inputs.n_reviews}}"
+        prior: "{{loop.previous}}"
+        project_document: "{{inputs.project_root}}/.atelier/project/project.md"
         template_dir: "{{conduit_dir}}/references"
-        path_review: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
-        bad_ideas: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_abandoned"
-        tasks_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
-        harness_ideation: "{{inputs.harness_ideation}}"
+        path_review: "{{inputs.project_root}}/.atelier/project/00_backlog"
+        bad_ideas: "{{inputs.project_root}}/.atelier/project/00_abandoned"
+        tasks_dir: "{{inputs.project_root}}/.atelier/project"
 
-  - improve_task:
-      description: Drain the project's 00_tasks/ inbox into spec'd task_*.md in 00_backlog/.
+  - improve_tasks:
+      description: Spec up to n_improve raw tasks from 00_tasks/ into task_*.md in 00_backlog/.
       tool: tool:conduit
       task: improve-task
       depends_on:
-        - pick_name
-        - "pick.output.match(to_improve_left: [1-9])"
-        - "usage_gate.output.match(ideation_ok: true)"
-      repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
-      until: 'output.match(task_counter:\s*0)'
+        - 'counts.output.match(n_improve:\s*[1-9])'
+        - 'usage_improve.output.match(ok:\s*true)'
+      repeat: 50  # literal safety ceiling; stops at n_improve or when the inbox drains
+      until: 'output.match(remaining:\s*0|task_counter:\s*0)'
       inputs:
-        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
+        target: "{{inputs.n_improve}}"
+        prior: "{{loop.previous}}"
+        project_document: "{{inputs.project_root}}/.atelier/project/project.md"
         template_dir: "{{conduit_dir}}/references"
-        path_task: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_tasks"
-        path_backlog: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/00_backlog"
-        harness_ideation: "{{inputs.harness_ideation}}"
+        path_task: "{{inputs.project_root}}/.atelier/project/00_tasks"
+        path_backlog: "{{inputs.project_root}}/.atelier/project/00_backlog"
 
-  - work_task:
-      description: Advance up to max_per_tick_to_do to-do tasks, each fully to DONE.
+  - do_tasks:
+      description: Advance up to n_todo to-do tasks, each fully to a DONE verdict.
       tool: tool:conduit
       task: work-one-todo
       depends_on:
-        - pick_name
-        - "pick.output.match(to_do_left: [1-9])"
-        - "usage_gate.output.match(development_ok: true)"
-        - "usage_gate.output.match(review_ok: true)"
-        - "flags.output.match(task_enabled: true)"
-      repeat: 15  # per-tick cap (authoritative); mirror in config.yaml + inputs
-      until: 'output.match(task_counter:\s*0)'
+        - 'counts.output.match(n_todo:\s*[1-9])'
+        - 'usage_todo.output.match(ok:\s*true)'
+      repeat: 50  # literal safety ceiling; stops at n_todo or when the queue drains
+      until: 'output.match(remaining:\s*0|task_counter:\s*0)'
       inputs:
-        project_document: "{{get_projects_dir.output}}/projects/{{pick_name.output}}/project.md"
-        project_dir: "{{get_projects_dir.output}}/projects/{{pick_name.output}}"
-        harness_development: "{{inputs.harness_development}}"
-        harness_review: "{{inputs.harness_review}}"
+        target: "{{inputs.n_todo}}"
+        prior: "{{loop.previous}}"
+        project_document: "{{inputs.project_root}}/.atelier/project/project.md"
+        project_dir: "{{inputs.project_root}}/.atelier/project"
+        project_root: "{{inputs.project_root}}"

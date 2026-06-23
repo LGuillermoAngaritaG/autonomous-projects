@@ -1,10 +1,11 @@
-"""Count unprocessed .md tasks left in the inbox; print 'task_counter: N'.
+"""Count .md files in a folder and emit 'task_counter: N'; always exit 0.
 
-Always exit 0 — a missing/unreadable inbox degrades to task_counter: 0 with
-a warning instead of crashing the tick.
+A missing or unreadable folder degrades to `task_counter: 0` (no warning) so a
+broken read never crashes the tick branch. Shared by improve-task (inbox drain)
+and work-one-todo (queue drain) to let a parent loop break on task_counter: 0.
 
-Emitted by improve-task's count_remaining task so the parent improve-all-tasks
-loop can break when the inbox drains (until: output.match(task_counter:\\s*0)).
+Stdout contract (always exit 0):
+    task_counter: <int>
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ def count_md_files(folder: str) -> int:
 
 
 def main() -> None:
-    inbox = sys.argv[1] if len(sys.argv) > 1 else ""
-    count = count_md_files(inbox)
+    folder = sys.argv[1] if len(sys.argv) > 1 else ""
+    count = count_md_files(folder)
     print(f"task_counter: {count}")
 
 

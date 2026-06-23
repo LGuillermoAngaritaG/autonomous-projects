@@ -5,63 +5,59 @@ max_concurrency: 1
 
 inputs:
   task: The task to perform
-  harness_development: {default: "opencode"}
-  harness_review: {default: "codex"}
 
 tasks:
   - do_task:
       description: Execute the task with a coding agent
-      tool: tool:conduit
-      task: "run-{{inputs.harness_development}}"
+      tool: harness:claude-code
       depends_on: []
-      inputs:
-        prompt: |
-          Perform the following task to completion:
+      task: |
+        /build
 
-          {{inputs.task}}
+        Perform the following task to completion:
 
-          When finished, describe concretely what you did so a reviewer
-          can independently judge whether the task was completed.
+        {{inputs.task}}
+
+        When finished, describe concretely what you did so a reviewer
+        can independently judge whether the task was completed.
 
   - review:
       description: Review the work and emit a DONE or NOT_DONE verdict
-      tool: tool:conduit
-      task: "run-{{inputs.harness_review}}"
+      tool: harness:claude-code
       depends_on:
-        - do_task.output.not_match(NOTHING TO DO)
-      inputs:
-        prompt: |
-          You are reviewing whether a task was actually completed.
+        - do_task.output.not_match(^\s*NOTHING TO DO)
+      task: |
+        You are reviewing whether a task was actually completed.
 
-          Original task:
-          {{inputs.task}}
+        Original task:
+        {{inputs.task}}
 
-          Work performed by the executor:
-          {{do_task.output}}
+        Work performed by the executor:
+        {{do_task.output}}
 
-          Independently verify the claim. Inspect files, run commands, or
-          check state as needed to confirm the task was truly completed.
+        Independently verify the claim. Inspect files, run commands, or
+        check state as needed to confirm the task was truly completed.
 
-          Re-run the project's tests yourself — do NOT trust the builder's
-          self-reported result. Use the project's `test_command` (from the
-          project.md frontmatter) when set, otherwise the project's conventional
-          suite. The suite passing green under your own run is a precondition for
-          VERDICT: DONE. If the project genuinely has no automated tests, confirm
-          the builder recorded that honestly rather than claiming a pass; a DONE
-          verdict is never allowed on the builder's self-reported test result alone.
+        Re-run the project's tests yourself — do NOT trust the builder's
+        self-reported result. Use the project's `test_command` (from the
+        project.md frontmatter) when set, otherwise the project's conventional
+        suite. The suite passing green under your own run is a precondition for
+        VERDICT: DONE. If the project genuinely has no automated tests, confirm
+        the builder recorded that honestly rather than claiming a pass; a DONE
+        verdict is never allowed on the builder's self-reported test result alone.
 
-          Judge two things, not one:
-          1. Completion — was the work actually done, not just claimed?
-          2. Alignment — does the work serve the task's stated goal and respect
-             every constraint the task names? Well-executed work that drifts from
-             the goal, violates a stated constraint, or builds further on a
-             decision the task says is unresolved is NOT done.
-          Return NOT_DONE if either check fails, and say which in the reason.
+        Judge two things, not one:
+        1. Completion — was the work actually done, not just claimed?
+        2. Alignment — does the work serve the task's stated goal and respect
+           every constraint the task names? Well-executed work that drifts from
+           the goal, violates a stated constraint, or builds further on a
+           decision the task says is unresolved is NOT done.
+        Return NOT_DONE if either check fails, and say which in the reason.
 
-          Respond with exactly two lines, nothing else:
-          VERDICT: DONE
-          REASON: <one short sentence>
+        Respond with exactly two lines, nothing else:
+        VERDICT: DONE
+        REASON: <one short sentence>
 
-          or:
-          VERDICT: NOT_DONE
-          REASON: <one short sentence>
+        or:
+        VERDICT: NOT_DONE
+        REASON: <one short sentence>

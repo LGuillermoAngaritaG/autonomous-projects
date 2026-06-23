@@ -2,12 +2,12 @@
 
 The advance step used to "pick the top .md in 01_to-do/" — undefined, so an AI
 agent chose whatever it grabbed and the same queue could be worked in a
-different order every run. This sorts by (priority asc, filename asc), mirroring
-select_project.py, so a task's `priority` actually steers the queue and the same
-queue is always worked in the same order.
+different order every run. This sorts by (priority asc, filename asc) so a
+task's `priority` actually steers the queue and the same queue is always worked
+in the same order.
 
-ponytail: ~6-line frontmatter read beats a cross-conduit import of the gates
-package — {{conduit_dir}} won't resolve to it from work-one-todo.
+ponytail: ~6-line frontmatter read beats sharing a helper across conduits —
+{{conduit_dir}} won't resolve to one from work-one-todo.
 
 Stdout contract (always exit 0):
     <bare filename>   the chosen to-do file

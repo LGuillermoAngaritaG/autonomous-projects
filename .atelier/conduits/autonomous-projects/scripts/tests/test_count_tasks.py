@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "work-one-todo" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from count_tasks import count_md_files
 
 

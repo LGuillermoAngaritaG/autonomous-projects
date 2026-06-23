@@ -1,0 +1,19 @@
+name: scaffold-project
+description: Scaffold .atelier/project/ (project.md + stage folders) inside a target repo.
+timeout: 600
+max_concurrency: 1
+
+inputs:
+  project_root: {default: "."}  # target repo where .atelier/project/ is created; defaults to the current dir
+
+tasks:
+  - scaffold:
+      description: Create <project_root>/.atelier/project/ with project.md and all stage folders.
+      tool: tool:bash
+      depends_on: []
+      task: |
+        set -euo pipefail
+        # Delegate to the tested scaffolder shipped with autonomous-projects
+        # (sibling conduit in this package). Pure stdlib -> plain python3, no uv.
+        python3 "{{conduit_dir}}/../autonomous-projects/scripts/new_project.py" \
+          --repo "{{inputs.project_root}}"

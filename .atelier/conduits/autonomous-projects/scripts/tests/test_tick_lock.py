@@ -40,7 +40,4 @@ def test_lock_path_precedence(monkeypatch):
 
 
 if __name__ == "__main__":
-    # Minimal runner mirroring test_usage_gate.py (no pytest fixtures here).
-    test_mutual_exclusion_then_release_readmits()
-    print("ok test_mutual_exclusion_then_release_readmits")
-    print("all passed")
+    sys.exit(pytest.main([__file__]))
